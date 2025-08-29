@@ -1,34 +1,54 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Post, Body, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { CreateAuthDto } from './dto/create-auth.dto';
-import { UpdateAuthDto } from './dto/update-auth.dto';
+import { SignupAuthDto } from './dto/signup-auth.dto';
+import { LoginAuthDto } from './dto/login-auth.dto';
+import { ForgotPasswordDto } from 'src/modules/auth/dto/forgot-password.dto';
+import { ResetPasswordDto } from 'src/modules/auth/dto/reset-password.dto';
+import { VerifyOtpDto } from 'src/modules/auth/dto/verify-otp.dto';
+import { JwtAuthGuard } from 'src/common/guards/jwt.guard';
+import { RefreshTokenGuard } from 'src/common/guards/refresh-token.guard';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Post()
-  create(@Body() createAuthDto: CreateAuthDto) {
-    return this.authService.create(createAuthDto);
+  @Post('signup')
+  signup(@Body() dto: SignupAuthDto) {
+    return this.authService.signup(dto);
   }
 
-  @Get()
-  findAll() {
-    return this.authService.findAll();
+  @Post('login')
+  login(@Body() dto: LoginAuthDto) {
+    return this.authService.login(dto);
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.authService.findOne(+id);
+  @Post('forgot')
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
   }
 
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateAuthDto: UpdateAuthDto) {
-    return this.authService.update(+id, updateAuthDto);
+  @Post('verify-otp')
+  verifyOtp(@Body() dto: VerifyOtpDto) {
+    return this.authService.verifyOtp(dto);
   }
 
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.authService.remove(+id);
+  @Post('reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('logout')
+  logout(@Req() req: any) {
+    return this.authService.logout(req.user.userId);
+  }
+
+  @UseGuards(RefreshTokenGuard)
+  @Post('refresh')
+  refresh(@Req() req: any) {
+    return this.authService.refreshTokens(
+      req.user.userId,
+      req.user.refreshToken,
+    );
   }
 }
