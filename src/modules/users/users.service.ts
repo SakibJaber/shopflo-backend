@@ -45,6 +45,15 @@ export class UsersService {
     return await this.userModel.findByIdAndUpdate(id, { refreshToken });
   }
 
+  async updateUser(id: string, data: Partial<User>) {
+    const user = await this.userModel.findById(id);
+    if (!user) throw new NotFoundException('User not found');
+
+    Object.assign(user, data);
+    await user.save();
+    return user;
+  }
+
   async createUser(data: Partial<User>): Promise<User> {
     const user = new this.userModel(data);
     return await user.save();

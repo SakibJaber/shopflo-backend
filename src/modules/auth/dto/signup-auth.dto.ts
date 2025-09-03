@@ -22,8 +22,4 @@ export class SignupAuthDto {
 
   @IsString()
   lastName: string;
-
-  @IsNumber()
-  @IsNotEmpty()
-  gdcNo: string;
 }

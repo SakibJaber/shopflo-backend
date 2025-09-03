@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsBooleanString, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsBooleanString,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 import { PaginationDto } from 'src/common/dto/pagination.dto';
 
 export class QueryCategoryDto extends PaginationDto {
@@ -20,10 +27,4 @@ export class QueryCategoryDto extends PaginationDto {
   @IsString()
   @IsIn(['asc', 'desc'])
   order: 'asc' | 'desc' = 'asc';
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  skip?: number; // overrides page/limit if provided
 }

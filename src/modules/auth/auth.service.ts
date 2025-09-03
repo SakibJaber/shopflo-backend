@@ -15,6 +15,7 @@ import { ForgotPasswordDto } from 'src/modules/auth/dto/forgot-password.dto';
 import { ResetPasswordDto } from 'src/modules/auth/dto/reset-password.dto';
 import { VerifyOtpDto } from 'src/modules/auth/dto/verify-otp.dto';
 import { UserStatus } from 'src/common/enum/user.status.enum';
+import { JwtPayload } from 'src/common/interface/jwtPayload.interface';
 
 @Injectable()
 export class AuthService {
@@ -133,23 +134,45 @@ export class AuthService {
       throw new BadRequestException('OTP expired or invalid');
     }
 
+    if (user.otpAttempts >= user.maxOtpAttempts) {
+      await this.usersService.updateUser(user.id, {
+        resetPasswordCodeHash: null,
+        resetPasswordExpires: null,
+        otpAttempts: 0,
+      });
+      throw new BadRequestException(
+        'Maximum OTP attempts exceeded. Please request a new OTP.',
+      );
+    }
+
     const match = await bcrypt.compare(
       dto.code.toString(),
       user.resetPasswordCodeHash,
     );
-    if (!match) throw new BadRequestException('Invalid OTP');
+    if (!match) {
+      await this.usersService.updateUser(user.id, {
+        otpAttempts: user.otpAttempts + 1,
+      });
+      throw new BadRequestException(
+        `Invalid OTP. ${user.maxOtpAttempts - user.otpAttempts - 1} attempts remaining.`,
+      );
+    }
 
-    // Issue a JWT scoped for password reset
-    const payload = { sub: user.id, email: user.email };
+    const payload: JwtPayload = {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    };
     const resetToken = await this.jwt.signAsync(payload, {
       secret: this.config.get<string>('JWT_RESET_SECRET'),
       expiresIn: this.config.get<string>('JWT_ACC_EXPIRATION'),
     });
 
-    // clear OTP fields now or after reset
-    user.resetPasswordCodeHash = null;
-    user.resetPasswordExpires = null;
-    await user.save();
+    await this.usersService.updateUser(user.id, {
+      resetPasswordCodeHash: null,
+      resetPasswordExpires: null,
+      otpAttempts: 0,
+    });
 
     return { resetToken };
   }
