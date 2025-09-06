@@ -44,29 +44,40 @@ export class ReviewService {
   }
 
   async findAll() {
-    return await this.reviewModel
-      .find()
-      .populate('user')
-      .populate('product')
-      .exec();
+    try {
+      return await this.reviewModel
+        .find()
+        .populate('user')
+        .populate('product')
+        .exec();
+    } catch (error) {
+      console.error('Error fetching all reviews:', error);
+      throw new InternalServerErrorException('Failed to fetch reviews');
+    }
   }
 
   async findOne(id: string) {
-    const review = await this.reviewModel
-      .findById(id)
-      .populate('user')
-      .populate('product')
-      .exec();
-    if (!review) {
-      throw new NotFoundException(`Review with ID ${id} not found`);
+    try {
+      const review = await this.reviewModel
+        .findById(id)
+        .populate('user')
+        .populate('product')
+        .exec();
+      if (!review) {
+        throw new NotFoundException(`Review with ID ${id} not found`);
+      }
+      return review;
+    } catch (error) {
+      console.error(`Error fetching review with ID ${id}:`, error);
+      throw new InternalServerErrorException('Failed to fetch review');
     }
-    return review;
   }
-
+ 
   async update(
     id: string,
     updateReviewDto: UpdateReviewDto,
     files?: Express.Multer.File[],
+    user?: any,
   ) {
     const existingReview = await this.reviewModel.findById(id);
     if (!existingReview) {
@@ -85,6 +96,7 @@ export class ReviewService {
     existingReview.set({
       ...updateReviewDto,
       images: imageUrls,
+      user: user?.userId,
     });
 
     return await existingReview.save();

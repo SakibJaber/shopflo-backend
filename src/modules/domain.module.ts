@@ -7,6 +7,11 @@ import { SubcategoryModule } from './category_management/subcategory/subcategory
 import { ColorsModule } from './color/color.module';
 import { SizesModule } from './sizes/sizes.module';
 import { BlogsModule } from './blogs/blogs.module';
+import { StaticPageModule } from './static-page/static-page.module';
+import { FAQModule } from './faq/faq.module';
+import { TestimonialModule } from './testimonial/testimonial.module';
+import { ContactModule } from './contact/contact.module';
+import { SocialModule } from './social/social.module';
 
 @Module({
   imports: [
@@ -18,6 +23,11 @@ import { BlogsModule } from './blogs/blogs.module';
     ColorsModule,
     SizesModule,
     BlogsModule,
+    StaticPageModule,
+    FAQModule,
+    TestimonialModule,
+    ContactModule,
+    SocialModule,
   ],
 })
 export class DomainModule {}

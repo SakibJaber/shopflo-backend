@@ -52,10 +52,11 @@ export class ReviewController {
   @UseGlobalFileInterceptor({ fieldName: 'image', maxCount: 5 })
   update(
     @Param('id') id: string,
+    @Req() req: any,
     @Body() updateReviewDto: UpdateReviewDto,
     @UploadedFiles() files: Express.Multer.File[],
   ) {
-    return this.reviewService.update(id, updateReviewDto, files);
+    return this.reviewService.update(id, updateReviewDto, files, req.user);
   }
 
   @Delete(':id')
