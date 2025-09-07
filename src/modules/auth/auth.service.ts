@@ -16,6 +16,7 @@ import { ResetPasswordDto } from 'src/modules/auth/dto/reset-password.dto';
 import { VerifyOtpDto } from 'src/modules/auth/dto/verify-otp.dto';
 import { UserStatus } from 'src/common/enum/user.status.enum';
 import { JwtPayload } from 'src/common/interface/jwtPayload.interface';
+import { User, UserDocument } from 'src/modules/users/schema/user.schema';
 
 @Injectable()
 export class AuthService {
@@ -176,6 +177,45 @@ export class AuthService {
 
     return { resetToken };
   }
+
+ async validateOAuthUser(googleUser: {
+  email: string;
+  firstName: string;
+  lastName: string;
+  picture?: string;
+  id: string;
+}): Promise<UserDocument> { // Return UserDocument instead of User
+  let user = await this.usersService.findByEmail(googleUser.email) as UserDocument;
+
+  if (!user) {
+    // Create new user without password for Google OAuth
+    user = await this.usersService.createUser({
+      email: googleUser.email,
+      firstName: googleUser.firstName,
+      lastName: googleUser.lastName,
+      imageUrl: googleUser.picture,
+      googleId: googleUser.id,
+      password: undefined, // Use undefined instead of null
+      status: UserStatus.APPROVED,
+    }) as UserDocument;
+  } else if (!user.googleId) {
+    // Update existing user with Google ID
+    user.googleId = googleUser.id;
+    user.imageUrl = googleUser.picture;
+    await user.save();
+  }
+
+  return user;
+}
+
+async googleLogin(user: UserDocument) { // Accept UserDocument
+  const tokens = await this.getTokens(user.id.toString(), user.email, user.role);
+  await this.usersService.updateRefreshToken(
+    user.id.toString(),
+    await bcrypt.hash(tokens.refreshToken, 10),
+  );
+  return tokens;
+}
 
   // Reset password using resetToken
   async resetPassword(dto: ResetPasswordDto) {

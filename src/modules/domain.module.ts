@@ -11,7 +11,7 @@ import { StaticPageModule } from './static-page/static-page.module';
 import { FAQModule } from './faq/faq.module';
 import { TestimonialModule } from './testimonial/testimonial.module';
 import { ContactModule } from './contact/contact.module';
-import { SocialModule } from './social/social.module';
+import { SocialMediaModule } from './social/social.module';
 
 @Module({
   imports: [
@@ -27,7 +27,7 @@ import { SocialModule } from './social/social.module';
     FAQModule,
     TestimonialModule,
     ContactModule,
-    SocialModule,
+    SocialMediaModule,
   ],
 })
 export class DomainModule {}

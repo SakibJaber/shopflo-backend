@@ -1,9 +1,17 @@
 import { Module } from '@nestjs/common';
-import { SocialService } from './social.service';
-import { SocialController } from './social.controller';
+import { MongooseModule } from '@nestjs/mongoose';
+import { SocialMedia, SocialMediaSchema } from './schema/social-media.schema';
+import { SocialMediaController } from 'src/modules/social/social.controller';
+import { SocialMediaService } from 'src/modules/social/social.service';
 
 @Module({
-  controllers: [SocialController],
-  providers: [SocialService],
+  imports: [
+    MongooseModule.forFeature([
+      { name: SocialMedia.name, schema: SocialMediaSchema },
+    ]),
+  ],
+  controllers: [SocialMediaController],
+  providers: [SocialMediaService],
+  exports: [SocialMediaService],
 })
-export class SocialModule {}
+export class SocialMediaModule {}

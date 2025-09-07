@@ -1,4 +1,5 @@
 import { PartialType } from '@nestjs/mapped-types';
-import { CreateSocialDto } from './create-social.dto';
+import { CreateSocialMediaDto } from 'src/modules/social/dto/create-social.dto';
 
-export class UpdateSocialDto extends PartialType(CreateSocialDto) {}
+
+export class UpdateSocialMediaDto extends PartialType(CreateSocialMediaDto) {}

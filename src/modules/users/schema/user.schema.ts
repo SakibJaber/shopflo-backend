@@ -16,7 +16,7 @@ export class User {
   @Prop({ required: true, unique: true })
   email: string;
 
-  @Prop({ required: true })
+  @Prop({ required: false })
   password: string;
 
   @Prop({ enum: Role, default: Role.USER })
@@ -30,6 +30,9 @@ export class User {
 
   @Prop({ enum: UserStatus, default: UserStatus.APPROVED })
   status: UserStatus;
+
+  @Prop()
+  googleId?: string;
 
   @Prop({ type: String, default: null })
   refreshToken?: string | null;
