@@ -56,7 +56,6 @@ export class SizesService {
   async findAll(query: QuerySizeDto) {
     const {
       search,
-      isVisible,
       sortBy = 'name',
       order = 'asc',
       page = 1,
@@ -65,10 +64,6 @@ export class SizesService {
     } = query;
 
     const filter: FilterQuery<SizeDocument> = {};
-
-    if (isVisible === 'true' || isVisible === 'false') {
-      filter.isVisible = isVisible === 'true';
-    }
 
     if (search) {
       filter.$or = [

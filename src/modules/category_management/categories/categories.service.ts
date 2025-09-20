@@ -82,12 +82,10 @@ export class CategoriesService {
     totalPages: number;
   }> {
     const filter: FilterQuery<CategoryDocument> = {};
+
     if (search) {
-      filter.$or = [
-        { $text: { $search: search } },
-        { name: { $regex: search, $options: 'i' } },
-        { slug: { $regex: search, $options: 'i' } },
-      ];
+      // Use $text search to query the name and slug fields
+      filter.$text = { $search: search };
     }
 
     const skip = (page - 1) * limit;

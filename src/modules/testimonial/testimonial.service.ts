@@ -17,6 +17,7 @@ export class TestimonialService {
     private readonly fileUploadService: FileUploadService,
   ) {}
 
+  // Create a new testimonial
   async create(
     createTestimonialDto: CreateTestimonialDto,
     file?: Express.Multer.File,
@@ -39,6 +40,7 @@ export class TestimonialService {
     }
   }
 
+  // Get all active testimonials
   async findAll() {
     try {
       return await this.testimonialModel
@@ -50,14 +52,18 @@ export class TestimonialService {
     }
   }
 
+  // Get all testimonials for admin
   async findAllForAdmin() {
     try {
       return await this.testimonialModel.find().sort({ createdAt: -1 }).exec();
     } catch (error) {
-      throw new InternalServerErrorException('Failed to fetch testimonials');
+      throw new InternalServerErrorException(
+        'Failed to fetch testimonials for admin',
+      );
     }
   }
 
+  // Get a testimonial by ID
   async findOne(id: string) {
     try {
       const testimonial = await this.testimonialModel.findById(id).exec();
@@ -70,6 +76,7 @@ export class TestimonialService {
     }
   }
 
+  // Update an existing testimonial
   async update(
     id: string,
     updateTestimonialDto: UpdateTestimonialDto,
@@ -104,6 +111,7 @@ export class TestimonialService {
     }
   }
 
+  // Remove a testimonial
   async remove(id: string) {
     try {
       const testimonial = await this.testimonialModel.findById(id).exec();
@@ -122,6 +130,7 @@ export class TestimonialService {
     }
   }
 
+  // Toggle the status of a testimonial (active/inactive)
   async toggleStatus(id: string) {
     try {
       const testimonial = await this.testimonialModel.findById(id).exec();

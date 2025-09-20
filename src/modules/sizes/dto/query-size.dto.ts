@@ -6,9 +6,7 @@ export class QuerySizeDto extends PaginationDto {
   @IsString()
   search?: string; // Optional search query for size name
 
-  @IsOptional()
-  @IsBooleanString()
-  isVisible?: string; // 'true' | 'false'
+
 
   @IsOptional()
   @IsString()

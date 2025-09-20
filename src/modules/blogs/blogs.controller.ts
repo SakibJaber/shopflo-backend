@@ -34,17 +34,71 @@ export class BlogsController {
     @Req() req: any,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.blogsService.create(dto, file, req.user); // Pass the file to the service
+    try {
+      const newBlog = await this.blogsService.create(dto, file, req.user);
+      return {
+        success: true,
+        statusCode: 201,
+        message: 'Blog created successfully',
+        data: newBlog,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: error.message || 'Failed to create blog',
+        data: null,
+      };
+    }
   }
 
   @Get()
-  findAll(@Query() query: QueryBlogDto) {
-    return this.blogsService.findAll(query);
+  async findAll(@Query() query: QueryBlogDto) {
+    try {
+      const result = await this.blogsService.findAll(query);
+      return {
+        success: true,
+        statusCode: 200,
+        message: 'Blogs fetched successfully',
+        data: result.items,
+        meta: result.meta, // Include the pagination metadata here
+      };
+    } catch (error) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: error.message || 'Failed to fetch blogs',
+        data: null,
+      };
+    }
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.blogsService.findOne(id);
+  async findOne(@Param('id') id: string) {
+    try {
+      const blog = await this.blogsService.findOne(id);
+      if (!blog) {
+        return {
+          success: false,
+          statusCode: 404,
+          message: 'Blog not found',
+          data: null,
+        };
+      }
+      return {
+        success: true,
+        statusCode: 200,
+        message: 'Blog fetched successfully',
+        data: blog,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: error.message || 'Failed to fetch blog',
+        data: null,
+      };
+    }
   }
 
   @Patch(':id')
@@ -54,11 +108,41 @@ export class BlogsController {
     @Body() dto: UpdateBlogDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.blogsService.update(id, dto, file); // Pass the file to the service
+    try {
+      const updatedBlog = await this.blogsService.update(id, dto, file);
+      return {
+        success: true,
+        statusCode: 200,
+        message: 'Blog updated successfully',
+        data: updatedBlog,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: error.message || 'Failed to update blog',
+        data: null,
+      };
+    }
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.blogsService.remove(id);
+  async remove(@Param('id') id: string) {
+    try {
+      const deletedBlog = await this.blogsService.remove(id);
+      return {
+        success: true,
+        statusCode: 200,
+        message: 'Blog deleted successfully',
+        data: deletedBlog,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: error.message || 'Failed to delete blog',
+        data: null,
+      };
+    }
   }
 }

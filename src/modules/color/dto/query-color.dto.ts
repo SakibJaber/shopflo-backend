@@ -7,10 +7,6 @@ export class QueryColorDto extends PaginationDto {
   search?: string; // Optional search query for color name
 
   @IsOptional()
-  @IsBooleanString()
-  isVisible?: string; // 'true' | 'false'
-
-  @IsOptional()
   @IsString()
   sortBy?: 'name' | 'createdAt' | 'updatedAt' = 'name'; // Default sorting by name
 

@@ -2,6 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { Category } from '../../categories/schema/category.schema';
 
+export type SubcategoryDocument = Subcategory & Document;
 @Schema({ timestamps: true })
 export class Subcategory extends Document {
   @Prop({ required: true })

@@ -10,7 +10,8 @@ import { BusinessInfo } from 'src/modules/contact/schema/business-info.schema';
 export class ContactService {
   constructor(
     @InjectModel(Contact.name) private contactModel: Model<Contact>,
-    @InjectModel(BusinessInfo.name) private businessInfoModel: Model<BusinessInfo>,
+    @InjectModel(BusinessInfo.name)
+    private businessInfoModel: Model<BusinessInfo>,
   ) {}
 
   async createContact(createContactDto: CreateContactDto) {
@@ -31,16 +32,14 @@ export class ContactService {
   }
 
   async markAsRead(id: string) {
-    const contact = await this.contactModel.findByIdAndUpdate(
-      id,
-      { isRead: true },
-      { new: true },
-    ).exec();
-    
+    const contact = await this.contactModel
+      .findByIdAndUpdate(id, { isRead: true }, { new: true })
+      .exec();
+
     if (!contact) {
       throw new NotFoundException(`Contact with ID ${id} not found`);
     }
-    
+
     return contact;
   }
 
@@ -54,32 +53,31 @@ export class ContactService {
 
   async getBusinessInfo() {
     let businessInfo = await this.businessInfoModel.findOne().exec();
-    
+
     // If no business info exists, create default one
     if (!businessInfo) {
       businessInfo = new this.businessInfoModel({
-        businessName: 'Your Business Name',
-        phone: '+15244122643',
-        email: 'hriday@gmail.com',
-        address: 'Dhaka, Bangladesh Road 12, House 24',
-        hours: 'Monday-Friday: 9am-5pm',
-        mapEmbedUrl: 'https://maps.google.com/maps?q=dhaka&t=&z=13&ie=UTF8&iwloc=&output=embed'
+        phone: '',
+        email: '',
+        State: '',
+        City: '',
+        Country: '',
       });
       await businessInfo.save();
     }
-    
+
     return businessInfo;
   }
 
   async updateBusinessInfo(updateBusinessInfoDto: UpdateBusinessInfoDto) {
     let businessInfo = await this.businessInfoModel.findOne().exec();
-    
+
     if (!businessInfo) {
       businessInfo = new this.businessInfoModel(updateBusinessInfoDto);
     } else {
       businessInfo.set(updateBusinessInfoDto);
     }
-    
+
     return await businessInfo.save();
   }
 }

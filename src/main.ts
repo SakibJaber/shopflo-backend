@@ -2,14 +2,20 @@ import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 import { Logger } from '@nestjs/common';
-import { MongoExceptionFilter } from 'src/common/filters/mongo-exception.filter';
+import { AllExceptionsFilter } from 'src/common/filters/all-exceptions.filter';
+import { ResponseInterceptor } from 'src/common/interceptors/response.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT') ?? 3000;
-  app.useGlobalFilters(new MongoExceptionFilter());
+
+  // Apply the ResponseInterceptor globally
+  app.useGlobalInterceptors(new ResponseInterceptor());
+
+  // Apply the global exception filter
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   // Enable CORS if frontend connects
   app.enableCors();

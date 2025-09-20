@@ -126,12 +126,15 @@ export class BlogsService {
     const existing = await this.blogModel.findById(id);
     if (!existing) throw new NotFoundException('Blog post not found');
 
-    let imageUrl: string | undefined;
+    // Handle file upload only if file is provided
     if (file) {
-      imageUrl = await this.fileUploadService.handleUpload(file);
+      const imageUrl = await this.fileUploadService.handleUpload(file);
+      existing.set({ ...dto, imageUrl });
+    } else {
+      // update only other fields, leave imageUrl unchanged
+      existing.set(dto);
     }
 
-    existing.set({ ...dto, imageUrl });
     await existing.save();
     return existing.toObject() as Blog;
   }

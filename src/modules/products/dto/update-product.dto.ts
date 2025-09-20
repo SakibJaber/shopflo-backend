@@ -1,4 +1,50 @@
-import { PartialType } from '@nestjs/mapped-types';
-import { CreateProductDto } from './create-product.dto';
+import {
+  IsArray,
+  IsMongoId,
+  IsNotEmpty,
+  IsEnum,
+  IsString,
+  IsOptional,
+  IsNumber,
+} from 'class-validator';
+import { ProductVariantDto } from 'src/modules/products/dto/product-variant.dto';
 
-export class UpdateProductDto extends PartialType(CreateProductDto) {}
+export class UpdateProductDto {
+  @IsOptional()
+  @IsMongoId()
+  @IsNotEmpty()
+  category?: string;
+
+  @IsOptional()
+  @IsMongoId()
+  @IsNotEmpty()
+  subcategory?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  productName?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  shortDescription?: string;
+
+  @IsOptional()
+  @IsNumber()
+  price?: number;
+
+  @IsOptional()
+  @IsNumber()
+  discountPercentage?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsMongoId({ each: true })
+  variants?: ProductVariantDto[];
+}

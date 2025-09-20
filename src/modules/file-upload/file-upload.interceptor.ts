@@ -1,7 +1,7 @@
 import {
+  FileFieldsInterceptor,
   FileInterceptor,
   FilesInterceptor,
-  AnyFilesInterceptor,
 } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
 import * as multer from 'multer';
@@ -9,17 +9,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 export interface FileInterceptorOptions {
-  fieldName?: string;
+  fieldName?: string | string[]; // Accept either a single field or an array of fields
   maxCount?: number;
   any?: boolean;
-  allowedMimes?: RegExp; // optional override
-  maxFileSizeBytes?: number; // optional override
+  allowedMimes?: RegExp;
+  maxFileSizeBytes?: number;
 }
 
 export function GlobalFileUploadInterceptor(
   options: FileInterceptorOptions = {},
 ) {
-  const field = options.fieldName || 'file';
+  const fieldNames = options.fieldName || ['file']; // Default field name is 'file'
   const maxCount = options.maxCount ?? 1;
   const isMultiple = maxCount > 1;
   const isAny = options.any === true;
@@ -62,8 +62,23 @@ export function GlobalFileUploadInterceptor(
     files: isAny ? undefined : maxCount,
   };
 
-  if (isAny) return AnyFilesInterceptor({ storage, limits, fileFilter });
+  if (Array.isArray(fieldNames)) {
+    // Use FileFieldsInterceptor for multiple fields
+    const fields = fieldNames.map((name) => ({ name, maxCount }));
+    return FileFieldsInterceptor(fields, {
+      storage,
+      limits,
+      fileFilter,
+    });
+  }
+
+
   if (isMultiple)
-    return FilesInterceptor(field, maxCount, { storage, limits, fileFilter });
-  return FileInterceptor(field, { storage, limits, fileFilter });
+    return FilesInterceptor(fieldNames, maxCount, {
+      storage,
+      limits,
+      fileFilter,
+    });
+
+  return FileInterceptor(fieldNames, { storage, limits, fileFilter });
 }

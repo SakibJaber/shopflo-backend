@@ -12,6 +12,8 @@ import { FAQModule } from './faq/faq.module';
 import { TestimonialModule } from './testimonial/testimonial.module';
 import { ContactModule } from './contact/contact.module';
 import { SocialMediaModule } from './social/social.module';
+import { ProductModule } from 'src/modules/products/products.module';
+import { CartModule } from './cart/cart.module';
 
 @Module({
   imports: [
@@ -22,12 +24,14 @@ import { SocialMediaModule } from './social/social.module';
     SubcategoryModule,
     ColorsModule,
     SizesModule,
+    ProductModule,
     BlogsModule,
     StaticPageModule,
     FAQModule,
     TestimonialModule,
     ContactModule,
     SocialMediaModule,
+    CartModule,
   ],
 })
 export class DomainModule {}

@@ -3,6 +3,8 @@ import { GlobalFileUploadInterceptor } from 'src/modules/file-upload/file-upload
 
 type Opts = Parameters<typeof GlobalFileUploadInterceptor>[0];
 
-export function UseGlobalFileInterceptor(options: Opts = { fieldName: 'file' }) {
+export function UseGlobalFileInterceptor(
+  options: Opts = { fieldName: 'file' },
+) {
   return applyDecorators(UseInterceptors(GlobalFileUploadInterceptor(options)));
 }

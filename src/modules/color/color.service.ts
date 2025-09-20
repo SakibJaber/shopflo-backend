@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model } from 'mongoose';
@@ -55,7 +56,6 @@ export class ColorsService {
   async findAll(query: QueryColorDto) {
     const {
       search,
-      isVisible,
       sortBy = 'name',
       order = 'asc',
       page = 1,
@@ -63,10 +63,6 @@ export class ColorsService {
     } = query;
 
     const filter: FilterQuery<ColorDocument> = {};
-
-    if (isVisible === 'true' || isVisible === 'false') {
-      filter.isVisible = isVisible === 'true';
-    }
 
     if (search) {
       filter.$or = [

@@ -1,7 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
-import { User } from 'src/modules/users/schema/user.schema';
-import { Product } from 'src/modules/products/product.schema';
 
 @Schema({ timestamps: true })
 export class Review extends Document {

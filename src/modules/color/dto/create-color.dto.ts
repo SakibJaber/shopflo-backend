@@ -1,4 +1,11 @@
-import { IsBoolean, IsHexColor, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsHexColor,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class CreateColorDto {
   @IsString()
@@ -8,8 +15,4 @@ export class CreateColorDto {
 
   @IsHexColor()
   hexValue: string; // Color hex code (e.g., "#FF0000")
-
-  @IsOptional()
-  @IsBoolean()
-  isVisible?: boolean; // Optional visibility flag, defaults to true
 }

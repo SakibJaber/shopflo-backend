@@ -3,10 +3,6 @@ import { IsString, IsNotEmpty, IsEmail, IsOptional } from 'class-validator';
 export class UpdateBusinessInfoDto {
   @IsString()
   @IsOptional()
-  businessName?: string;
-
-  @IsString()
-  @IsOptional()
   phone?: string;
 
   @IsEmail()
@@ -15,13 +11,13 @@ export class UpdateBusinessInfoDto {
 
   @IsString()
   @IsOptional()
-  address?: string;
+  State?: string;
 
   @IsString()
   @IsOptional()
-  hours?: string;
+  City?: string;
 
   @IsString()
   @IsOptional()
-  mapEmbedUrl?: string;
+  Country?: string;
 }

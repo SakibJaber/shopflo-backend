@@ -20,7 +20,7 @@ export class FileUploadService {
   private readonly localUploadPath: string;
   private readonly s3?: S3Client;
   private readonly s3Bucket?: string;
-  private readonly publicBaseUrl?: string; 
+  private readonly publicBaseUrl?: string;
 
   constructor(private readonly config: ConfigService) {
     this.useS3 = this.config.get<string>('FILE_STORAGE', 'local') === 's3';
