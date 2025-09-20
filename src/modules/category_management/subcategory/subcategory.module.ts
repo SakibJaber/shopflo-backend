@@ -1,13 +1,11 @@
-import { Module } from '@nestjs/common';
+// subcategory.module.ts
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { SubcategoryController } from './subcategory.controller';
 import { SubcategoryService } from './subcategory.service';
+import { SubcategoryController } from './subcategory.controller';
 import { Subcategory, SubcategorySchema } from './schema/subcategory.schema';
-import { FileUploadModule } from 'src/modules/file-upload/file-upload.module';
-import {
-  Category,
-  CategorySchema,
-} from 'src/modules/category_management/categories/schema/category.schema';
+import { Category, CategorySchema } from '../categories/schema/category.schema';
+import { CategoriesModule } from '../categories/categories.module';
 
 @Module({
   imports: [
@@ -15,7 +13,7 @@ import {
       { name: Subcategory.name, schema: SubcategorySchema },
       { name: Category.name, schema: CategorySchema },
     ]),
-    FileUploadModule,
+    forwardRef(() => CategoriesModule), // To avoid circular dependencies
   ],
   controllers: [SubcategoryController],
   providers: [SubcategoryService],

@@ -51,14 +51,14 @@ export class SubcategoryController {
   async findAll(
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
-    @Query('parentCategoryId') parentCategoryId: string,
+    @Query('category') category: string,
     @Query('search') search?: string,
   ) {
     try {
       const result = await this.subcategoryService.findAll(
         page,
         limit,
-        parentCategoryId,    
+        category,
         search,
       );
 
@@ -72,7 +72,7 @@ export class SubcategoryController {
           page: result.page,
           limit: result.limit,
           totalPages: result.totalPages,
-           ...(search && { search }), 
+          ...(search && { search }),
         },
       };
     } catch (error) {
@@ -113,29 +113,28 @@ export class SubcategoryController {
     @Body() updateSubcategoryDto: UpdateSubcategoryDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    // Ensure that parentCategoryId is a string and is valid
+    // Ensure that category is a string and is valid
     if (
-      updateSubcategoryDto.parentCategoryId &&
-      typeof updateSubcategoryDto.parentCategoryId === 'object' &&
-      'toString' in updateSubcategoryDto.parentCategoryId &&
-      typeof (
-        updateSubcategoryDto.parentCategoryId as { toString: () => string }
-      ).toString === 'function'
+      updateSubcategoryDto.category &&
+      typeof updateSubcategoryDto.category === 'object' &&
+      'toString' in updateSubcategoryDto.category &&
+      typeof (updateSubcategoryDto.category as { toString: () => string })
+        .toString === 'function'
     ) {
-      updateSubcategoryDto.parentCategoryId = (
-        updateSubcategoryDto.parentCategoryId as { toString: () => string }
+      updateSubcategoryDto.category = (
+        updateSubcategoryDto.category as { toString: () => string }
       ).toString(); // Ensure it's a string
     }
 
-    // Validate parentCategoryId presence and format
+    // Validate category presence and format
     if (
-      !updateSubcategoryDto.parentCategoryId ||
-      !isValidObjectId(updateSubcategoryDto.parentCategoryId)
+      !updateSubcategoryDto.category ||
+      !isValidObjectId(updateSubcategoryDto.category)
     ) {
       return {
         success: false,
         statusCode: HttpStatus.BAD_REQUEST,
-        message: 'parentCategoryId is required and must be a valid ObjectId.',
+        message: 'category is required and must be a valid ObjectId.',
         data: null,
       };
     }

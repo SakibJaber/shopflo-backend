@@ -1,20 +1,27 @@
-import { IsString, IsNotEmpty, IsMongoId, IsOptional } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsMongoId,
+  IsBoolean,
+  IsNumber,
+} from 'class-validator';
 
 export class CreateSubcategoryDto {
-  @IsString()
   @IsNotEmpty()
   name: string;
 
+  @IsOptional()
+  slug?: string;
+
   @IsMongoId()
-  parentCategoryId: string; // Must be a valid category ID
+  @IsNotEmpty()
+  category: string; // Changed from parentCategoryId to category
 
   @IsOptional()
-  @IsString()
-  imageUrl?: string; // Optional image URL
+  @IsNumber()
+  sortOrder?: number;
 
   @IsOptional()
-  sortOrder?: number; // Optional sorting field
-
-  @IsOptional()
-  isVisible?: boolean; // Whether the subcategory is visible
+  @IsBoolean()
+  isVisible?: boolean;
 }

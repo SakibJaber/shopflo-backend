@@ -3,22 +3,32 @@ import { Document, Types } from 'mongoose';
 import { Category } from '../../categories/schema/category.schema';
 
 export type SubcategoryDocument = Subcategory & Document;
+
 @Schema({ timestamps: true })
 export class Subcategory extends Document {
   @Prop({ required: true })
   name: string;
 
   @Prop({ type: Types.ObjectId, ref: 'Category', required: true })
-  parentCategoryId: Types.ObjectId;
+  category: Types.ObjectId; // Changed from parentCategoryId to category
 
   @Prop({ type: Number, default: 0 })
-  sortOrder?: number; // Optional field for order
+  sortOrder?: number;
 
   @Prop({ type: String })
-  imageUrl?: string; // Optional field for image
+  imageUrl?: string;
 
   @Prop({ default: true })
   isVisible: boolean;
+
+  @Prop({ required: true, unique: true, index: true, trim: true })
+  slug: string;
 }
 
 export const SubcategorySchema = SchemaFactory.createForClass(Subcategory);
+
+// Text index for search functionality
+SubcategorySchema.index(
+  { name: 'text', slug: 'text' },
+  { name: 'SubcategoryTextIndex' },
+);

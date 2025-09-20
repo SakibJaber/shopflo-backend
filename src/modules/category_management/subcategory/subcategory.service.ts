@@ -11,11 +11,9 @@ import { FilterQuery, Model, isValidObjectId } from 'mongoose';
 import { CreateSubcategoryDto } from './dto/create-subcategory.dto';
 import { UpdateSubcategoryDto } from './dto/update-subcategory.dto';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
-import {
-  Subcategory,
-  SubcategoryDocument,
-} from 'src/modules/category_management/subcategory/schema/subcategory.schema';
-import { Category } from 'src/modules/category_management/categories/schema/category.schema';
+import { Subcategory, SubcategoryDocument } from './schema/subcategory.schema';
+import { Category } from '../categories/schema/category.schema';
+import { slugify } from 'src/common/utils/slugify.util';
 
 @Injectable()
 export class SubcategoryService {
@@ -27,34 +25,69 @@ export class SubcategoryService {
     private readonly fileUploadService: FileUploadService,
   ) {}
 
+  // --- slug helpers ---
+  private async ensureUniqueSlug(slug: string, excludeId?: string) {
+    let finalSlug = slug;
+    let i = 0;
+    const exists = async (s: string) => {
+      const filter: FilterQuery<SubcategoryDocument> = { slug: s };
+      if (excludeId) filter._id = { $ne: excludeId };
+      return this.subcategoryModel.exists(filter);
+    };
+    while (await exists(finalSlug)) {
+      i += 1;
+      finalSlug = `${slug}-${i}`;
+    }
+    return finalSlug;
+  }
+
   // Create subcategory
   async create(
     createSubcategoryDto: CreateSubcategoryDto,
     file?: Express.Multer.File,
   ): Promise<Subcategory> {
     try {
+      // Check if category exists
+      const category = await this.categoryModel.findById(
+        createSubcategoryDto.category,
+      );
+      if (!category) {
+        throw new NotFoundException(
+          `Category with ID ${createSubcategoryDto.category} not found`,
+        );
+      }
+
+      // Generate slug
+      const baseSlug = createSubcategoryDto.slug
+        ? slugify(createSubcategoryDto.slug)
+        : slugify(createSubcategoryDto.name);
+      const uniqueSlug = await this.ensureUniqueSlug(baseSlug);
+
       let imageUrl: string | undefined;
       if (file) {
         imageUrl = await this.fileUploadService.handleUpload(file);
       }
 
-      // Make sure parentCategoryId is valid
-      const category = await this.categoryModel.findById(
-        createSubcategoryDto.parentCategoryId,
-      );
-      if (!category) {
-        throw new NotFoundException(
-          `Category with ID ${createSubcategoryDto.parentCategoryId} not found`,
-        );
-      }
-
       const created = await this.subcategoryModel.create({
         ...createSubcategoryDto,
+        slug: uniqueSlug,
         imageUrl,
       });
 
+      // Add subcategory to category's subcategories array
+      await this.categoryModel.findByIdAndUpdate(
+        createSubcategoryDto.category,
+        { $push: { subcategories: created._id } },
+      );
+
       return created;
     } catch (error) {
+      if (error?.code === 11000) {
+        throw new ConflictException({
+          statusCode: HttpStatus.CONFLICT,
+          message: 'Subcategory slug already exists',
+        });
+      }
       throw new InternalServerErrorException({
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
         message: error.message || 'Subcategory creation failed',
@@ -66,29 +99,28 @@ export class SubcategoryService {
   async findAll(
     page: number = 1,
     limit: number = 10,
-    parentCategoryId: string,
+    categoryId: string,
     search?: string,
   ) {
-        
     const filter: FilterQuery<SubcategoryDocument> = {};
 
     if (search) {
-      // Use $text search to query the name and slug fields
       filter.$text = { $search: search };
     }
 
-    const skip = (page - 1) * limit;
-
-    if (parentCategoryId) {
-      filter.parentCategoryId = parentCategoryId; // Filter by parentCategoryId if provided
+    if (categoryId) {
+      filter.category = categoryId;
     }
+
+    const skip = (page - 1) * limit;
 
     const [data, total] = await Promise.all([
       this.subcategoryModel
         .find(filter)
         .skip(skip)
         .limit(limit)
-        .populate('parentCategoryId', 'name slug') // Populate the category field
+        .populate('category', 'name slug')
+        .sort({ sortOrder: 1, name: 1 })
         .exec(),
       this.subcategoryModel.countDocuments(filter).exec(),
     ]);
@@ -106,7 +138,7 @@ export class SubcategoryService {
   async findOne(id: string): Promise<Subcategory> {
     const subcategory = await this.subcategoryModel
       .findById(id)
-      .populate('parentCategoryId') // Populate the category field
+      .populate('category', 'name slug')
       .exec();
 
     if (!subcategory) {
@@ -121,18 +153,38 @@ export class SubcategoryService {
     updateSubcategoryDto: UpdateSubcategoryDto,
     file?: Express.Multer.File,
   ): Promise<Subcategory> {
-    // Validate parentCategoryId
-    if (
-      !updateSubcategoryDto.parentCategoryId ||
-      !isValidObjectId(updateSubcategoryDto.parentCategoryId)
-    ) {
-      throw new BadRequestException(
-        'parentCategoryId is required and must be a valid ObjectId.',
+    const existing = await this.findOne(id);
+    const oldCategoryId = existing.category.toString();
+
+    // Validate category if it's being updated
+    if (updateSubcategoryDto.category) {
+      if (!isValidObjectId(updateSubcategoryDto.category)) {
+        throw new BadRequestException('category must be a valid ObjectId.');
+      }
+
+      const category = await this.categoryModel.findById(
+        updateSubcategoryDto.category,
       );
+      if (!category) {
+        throw new NotFoundException(
+          `Category with ID ${updateSubcategoryDto.category} not found`,
+        );
+      }
     }
 
-    const existing = await this.findOne(id);
+    // Handle slug generation if name is being updated
+    let nextSlug = existing.slug;
+    if (updateSubcategoryDto.name && !updateSubcategoryDto.slug) {
+      nextSlug = slugify(updateSubcategoryDto.name);
+    }
+    if (updateSubcategoryDto.slug) {
+      nextSlug = slugify(updateSubcategoryDto.slug);
+    }
+    if (nextSlug !== existing.slug) {
+      nextSlug = await this.ensureUniqueSlug(nextSlug, id);
+    }
 
+    // Handle image upload
     let imageUrl = existing.imageUrl;
     if (file) {
       const newUrl = await this.fileUploadService.handleUpload(file);
@@ -146,21 +198,48 @@ export class SubcategoryService {
       imageUrl = newUrl;
     }
 
+    // Update the subcategory
     existing.set({
       ...updateSubcategoryDto,
+      slug: nextSlug,
       imageUrl,
     });
 
     await existing.save();
+
+    // If category was changed, update both categories
+    if (
+      updateSubcategoryDto.category &&
+      updateSubcategoryDto.category !== oldCategoryId
+    ) {
+      // Remove from old category
+      await this.categoryModel.findByIdAndUpdate(oldCategoryId, {
+        $pull: { subcategories: existing._id },
+      });
+
+      // Add to new category
+      await this.categoryModel.findByIdAndUpdate(
+        updateSubcategoryDto.category,
+        { $push: { subcategories: existing._id } },
+      );
+    }
+
     return existing;
   }
 
   // Remove subcategory
   async remove(id: string): Promise<void> {
     const subcategory = await this.findOne(id);
+
     if (subcategory.imageUrl) {
       await this.fileUploadService.deleteFile(subcategory.imageUrl);
     }
+
+    // Remove from category's subcategories array
+    await this.categoryModel.findByIdAndUpdate(subcategory.category, {
+      $pull: { subcategories: subcategory._id },
+    });
+
     await this.subcategoryModel.findByIdAndDelete(id).exec();
   }
 }

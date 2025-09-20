@@ -12,16 +12,19 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
 import { slugify } from 'src/common/utils/slugify.util';
+import { Subcategory } from '../subcategory/schema/subcategory.schema';
 
 @Injectable()
 export class CategoriesService {
   constructor(
     @InjectModel(Category.name)
     private readonly categoryModel: Model<CategoryDocument>,
+    @InjectModel(Subcategory.name)
+    private readonly subcategoryModel: Model<Subcategory>,
     private readonly fileUploadService: FileUploadService,
   ) {}
 
-  // --- slug helpers (kept from your original) ---
+  // --- slug helpers ---
   private async ensureUniqueSlug(slug: string, excludeId?: string) {
     let finalSlug = slug;
     let i = 0;
@@ -37,7 +40,7 @@ export class CategoriesService {
     return finalSlug;
   }
 
-  // --- create with optional image upload & structured error payload ---
+  // --- create with optional image upload ---
   async create(
     dto: CreateCategoryDto,
     file?: Express.Multer.File,
@@ -69,7 +72,7 @@ export class CategoriesService {
     }
   }
 
-  // --- paginated + search (kept & simplified to your “desired” shape) ---
+  // --- paginated + search with subcategories populated ---
   async findAll(
     page = 1,
     limit = 10,
@@ -92,7 +95,12 @@ export class CategoriesService {
     const [data, total] = await Promise.all([
       this.categoryModel
         .find(filter)
-        .sort({ sortOrder: 1, name: 1 }) // stable order
+        .populate({
+          path: 'subcategories',
+          select: 'name slug imageUrl sortOrder isVisible',
+          options: { sort: { sortOrder: 1, name: 1 } },
+        })
+        .sort({ sortOrder: 1, name: 1 })
         .skip(skip)
         .limit(limit)
         .lean(),
@@ -109,7 +117,15 @@ export class CategoriesService {
   }
 
   async findOne(id: string): Promise<Category> {
-    const found = await this.categoryModel.findById(id).lean();
+    const found = await this.categoryModel
+      .findById(id)
+      .populate({
+        path: 'subcategories',
+        select: 'name slug imageUrl sortOrder isVisible',
+        options: { sort: { sortOrder: 1, name: 1 } },
+      })
+      .lean();
+
     if (!found) {
       throw new NotFoundException({
         statusCode: HttpStatus.NOT_FOUND,
@@ -186,5 +202,8 @@ export class CategoriesService {
         /* noop */
       }
     }
+
+    // Remove all subcategories associated with this category
+    await this.subcategoryModel.deleteMany({ category: id });
   }
 }
