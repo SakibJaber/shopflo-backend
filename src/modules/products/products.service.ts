@@ -30,7 +30,14 @@ export class ProductService {
     files?: Express.Multer.File[],
   ): Promise<Product> {
     try {
-      const createdProduct = new this.productModel(createProductDto);
+      const discountedPrice =
+        createProductDto.price -
+        createProductDto.price * (createProductDto.discountPercentage / 100);
+
+      const createdProduct = new this.productModel({
+        ...createProductDto,
+        discountedPrice,
+      });
       return await createdProduct.save();
     } catch (error) {
       throw new BadRequestException(error.message);
@@ -121,6 +128,7 @@ export class ProductService {
         .find(filter)
         .populate('category', 'name')
         .populate('subcategory', 'name')
+        .populate('brand', 'brandName brandLogo')
         .populate('variants.color', 'name hexValue')
         .populate('variants.size', 'name')
         .skip(skip)
@@ -145,6 +153,7 @@ export class ProductService {
       .findById(id)
       .populate('category', 'name')
       .populate('subcategory', 'name')
+      .populate('brand', 'brandName brandLogo')
       .populate('variants.color', 'name hexValue')
       .populate('variants.size', 'name')
       .exec();
@@ -169,6 +178,18 @@ export class ProductService {
       throw new NotFoundException('Product not found');
     }
 
+    // Recalculate discounted price if price or discount percentage is updated
+    if (
+      updateProductDto.price !== undefined ||
+      updateProductDto.discountPercentage !== undefined
+    ) {
+      const price = updateProductDto.price ?? existing.price;
+      const discountPercentage =
+        updateProductDto.discountPercentage ?? existing.discountPercentage;
+      updateProductDto.discountedPrice =
+        price - price * (discountPercentage / 100);
+    }
+
     if (files && updateProductDto.variants) {
       const variantsWithImages = await this.processVariantImages(
         updateProductDto.variants,
@@ -185,6 +206,7 @@ export class ProductService {
       .findByIdAndUpdate(id, updateProductDto, { new: true })
       .populate('category', 'name')
       .populate('subcategory', 'name')
+      .populate('brand', 'brandName brandLogo')
       .populate('variants.color', 'name hexValue')
       .populate('variants.size', 'name')
       .exec();

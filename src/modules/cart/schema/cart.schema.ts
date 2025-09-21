@@ -11,24 +11,45 @@ export class CartItem {
   @Prop({ type: Types.ObjectId, ref: Product.name, required: true })
   product: Types.ObjectId;
 
-  @Prop({ required: true })
+  @Prop({ type: Types.ObjectId, required: true })
+  variant: Types.ObjectId;
+
+  @Prop({ required: true, min: 1 })
   quantity: number;
 
   @Prop({ default: false })
-  isSelected: boolean; // For marking if the item is selected for checkout
+  isSelected: boolean;
+
+  @Prop({ required: true })
+  price: number;
+
+  @Prop({ required: true })
+  color: string;
+
+  @Prop({ required: true })
+  size: string;
+
+  @Prop()
+  frontImage: string;
+
+  @Prop()
+  backImage: string;
 }
 
 @Schema({ timestamps: true })
 export class Cart {
-  @Prop({ type: Types.ObjectId, ref: User.name, required: true })
+  @Prop({ type: Types.ObjectId, ref: User.name, required: true, unique: true })
   user: Types.ObjectId;
 
   @Prop({ type: [CartItem], default: [] })
   items: CartItem[];
 
-  @Prop({ default: false })
-  isActive: boolean; // To track if the cart is active or completed
+  @Prop({ default: true })
+  isActive: boolean;
 }
 
 export const CartItemSchema = SchemaFactory.createForClass(CartItem);
 export const CartSchema = SchemaFactory.createForClass(Cart);
+
+// Index for better query performance
+CartSchema.index({ user: 1, isActive: 1 });

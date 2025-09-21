@@ -35,6 +35,10 @@ export class UpdateProductDto {
   @IsNotEmpty()
   shortDescription?: string;
 
+  @IsMongoId()
+  @IsNotEmpty()
+  brand: string;
+
   @IsOptional()
   @IsNumber()
   price?: number;
@@ -42,6 +46,10 @@ export class UpdateProductDto {
   @IsOptional()
   @IsNumber()
   discountPercentage?: number;
+
+  @IsOptional()
+  @IsNumber()
+  discountedPrice: number;
 
   @IsOptional()
   @IsArray()

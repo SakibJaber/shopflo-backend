@@ -4,36 +4,92 @@ import {
   IsNumber,
   IsOptional,
   IsBoolean,
+  IsNotEmpty,
+  IsString,
+  Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
-export class CreateCartDto {
+export class CartItemDto {
   @IsMongoId()
-  user: string; // User ID for the cart
-}
+  @IsNotEmpty()
+  product: string;
 
-export class AddToCartDto {
   @IsMongoId()
-  product: string; // Product ID
+  @IsNotEmpty()
+  variant: string;
 
   @IsNumber()
+  @Min(1)
   quantity: number;
 
   @IsOptional()
   @IsBoolean()
-  isSelected?: boolean; // Whether the item is selected for checkout
+  isSelected?: boolean;
+
+  @IsNumber()
+  @Min(0)
+  price: number;
+
+  @IsString()
+  @IsNotEmpty()
+  color: string;
+
+  @IsString()
+  @IsNotEmpty()
+  size: string;
+
+  @IsString()
+  @IsOptional()
+  frontImage?: string;
+
+  @IsString()
+  @IsOptional()
+  backImage?: string;
+}
+
+export class CreateCartDto {
+  @IsMongoId()
+  user: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CartItemDto)
+  items: CartItemDto[];
+}
+
+export class AddToCartDto {
+  @IsMongoId()
+  product: string;
+
+  @IsMongoId()
+  variant: string;
+
+  @IsNumber()
+  @Min(1)
+  quantity: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isSelected?: boolean;
 }
 
 export class UpdateCartItemDto {
   @IsOptional()
   @IsNumber()
-  quantity?: number; // Quantity to be updated
+  @Min(1)
+  quantity?: number;
 
   @IsOptional()
   @IsBoolean()
-  isSelected?: boolean; // Whether to select for checkout
+  isSelected?: boolean;
 }
 
 export class RemoveFromCartDto {
   @IsMongoId()
-  product: string; // Product ID to be removed
+  product: string;
+
+  @IsMongoId()
+  variant: string;
 }

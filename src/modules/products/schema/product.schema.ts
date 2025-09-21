@@ -50,14 +50,28 @@ export class Product {
   @Prop({ required: true })
   shortDescription: string;
 
+  @Prop({ type: Types.ObjectId, ref: 'Brand', required: true })
+  brand: Types.ObjectId;
+
   @Prop({ required: true, min: 0 })
   price: number;
 
   @Prop({ required: true, min: 0, max: 100 })
   discountPercentage: number;
 
+  @Prop({ required: true, min: 0 })
+  discountedPrice: number;
+
   @Prop({ type: [ProductVariantSchema], default: [] })
   variants: ProductVariant[];
 }
 
 export const ProductSchema = SchemaFactory.createForClass(Product);
+
+ProductSchema.pre('save', function (next) {
+  if (this.isModified('price') || this.isModified('discountPercentage')) {
+    this.discountedPrice =
+      this.price - this.price * (this.discountPercentage / 100);
+  }
+  next();
+});

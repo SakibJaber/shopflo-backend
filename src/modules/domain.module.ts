@@ -14,6 +14,10 @@ import { ContactModule } from './contact/contact.module';
 import { SocialMediaModule } from './social/social.module';
 import { ProductModule } from 'src/modules/products/products.module';
 import { CartModule } from './cart/cart.module';
+import { BrandModule } from './brand/brand.module';
+import { OrderModule } from './order/order.module';
+import { AddressModule } from './address/address.module';
+import { PaymentModule } from './payment/payment.module';
 
 @Module({
   imports: [
@@ -32,6 +36,10 @@ import { CartModule } from './cart/cart.module';
     ContactModule,
     SocialMediaModule,
     CartModule,
+    BrandModule,
+    OrderModule,
+    AddressModule,
+    PaymentModule,
   ],
 })
 export class DomainModule {}

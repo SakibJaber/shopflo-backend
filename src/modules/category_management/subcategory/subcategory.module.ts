@@ -1,4 +1,3 @@
-// subcategory.module.ts
 import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { SubcategoryService } from './subcategory.service';
