@@ -7,7 +7,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { FilterQuery, Model, isValidObjectId } from 'mongoose';
+import { FilterQuery, Model, isValidObjectId, Types } from 'mongoose';
 import { CreateSubcategoryDto } from './dto/create-subcategory.dto';
 import { UpdateSubcategoryDto } from './dto/update-subcategory.dto';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
@@ -19,13 +19,12 @@ import { slugify } from 'src/common/utils/slugify.util';
 export class SubcategoryService {
   constructor(
     @InjectModel(Subcategory.name)
-    private readonly subcategoryModel: Model<Subcategory>,
+    private readonly subcategoryModel: Model<SubcategoryDocument>,
     @InjectModel(Category.name)
     private readonly categoryModel: Model<Category>,
     private readonly fileUploadService: FileUploadService,
   ) {}
 
-  // --- slug helpers ---
   private async ensureUniqueSlug(slug: string, excludeId?: string) {
     let finalSlug = slug;
     let i = 0;
@@ -41,7 +40,6 @@ export class SubcategoryService {
     return finalSlug;
   }
 
-  // Create subcategory
   async create(
     createSubcategoryDto: CreateSubcategoryDto,
     file?: Express.Multer.File,
@@ -74,12 +72,6 @@ export class SubcategoryService {
         imageUrl,
       });
 
-      // Add subcategory to category's subcategories array
-      await this.categoryModel.findByIdAndUpdate(
-        createSubcategoryDto.category,
-        { $push: { subcategories: created._id } },
-      );
-
       return created;
     } catch (error) {
       if (error?.code === 11000) {
@@ -95,7 +87,6 @@ export class SubcategoryService {
     }
   }
 
-  // Find all subcategories
   async findAll(
     page: number = 1,
     limit: number = 10,
@@ -134,7 +125,6 @@ export class SubcategoryService {
     };
   }
 
-  // Find subcategory by ID
   async findOne(id: string): Promise<Subcategory> {
     const subcategory = await this.subcategoryModel
       .findById(id)
@@ -147,7 +137,6 @@ export class SubcategoryService {
     return subcategory;
   }
 
-  // Update subcategory
   async update(
     id: string,
     updateSubcategoryDto: UpdateSubcategoryDto,
@@ -156,12 +145,14 @@ export class SubcategoryService {
     const existing = await this.findOne(id);
     const oldCategoryId = existing.category.toString();
 
-    // Validate category if it's being updated
     if (updateSubcategoryDto.category) {
       if (!isValidObjectId(updateSubcategoryDto.category)) {
         throw new BadRequestException('category must be a valid ObjectId.');
       }
 
+      updateSubcategoryDto.category = new Types.ObjectId(
+        updateSubcategoryDto.category,
+      );
       const category = await this.categoryModel.findById(
         updateSubcategoryDto.category,
       );
@@ -172,7 +163,6 @@ export class SubcategoryService {
       }
     }
 
-    // Handle slug generation if name is being updated
     let nextSlug = existing.slug;
     if (updateSubcategoryDto.name && !updateSubcategoryDto.slug) {
       nextSlug = slugify(updateSubcategoryDto.name);
@@ -184,7 +174,6 @@ export class SubcategoryService {
       nextSlug = await this.ensureUniqueSlug(nextSlug, id);
     }
 
-    // Handle image upload
     let imageUrl = existing.imageUrl;
     if (file) {
       const newUrl = await this.fileUploadService.handleUpload(file);
@@ -198,7 +187,6 @@ export class SubcategoryService {
       imageUrl = newUrl;
     }
 
-    // Update the subcategory
     existing.set({
       ...updateSubcategoryDto,
       slug: nextSlug,
@@ -206,36 +194,15 @@ export class SubcategoryService {
     });
 
     await existing.save();
-
-    // If category was changed, update both categories
-    if (
-      updateSubcategoryDto.category &&
-      updateSubcategoryDto.category !== oldCategoryId
-    ) {
-      // Remove from old category
-      await this.categoryModel.findByIdAndUpdate(oldCategoryId, {
-        $pull: { subcategories: existing._id },
-      });
-
-      // Add to new category
-      await this.categoryModel.findByIdAndUpdate(
-        updateSubcategoryDto.category,
-        { $push: { subcategories: existing._id } },
-      );
-    }
-
     return existing;
   }
 
-  // Remove subcategory
   async remove(id: string): Promise<void> {
     const subcategory = await this.findOne(id);
-
     if (subcategory.imageUrl) {
       await this.fileUploadService.deleteFile(subcategory.imageUrl);
     }
 
-    // Remove from category's subcategories array
     await this.categoryModel.findByIdAndUpdate(subcategory.category, {
       $pull: { subcategories: subcategory._id },
     });

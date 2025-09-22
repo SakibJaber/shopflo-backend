@@ -6,7 +6,7 @@ import {
   IsString,
   IsPhoneNumber,
 } from 'class-validator';
-import { AddressType } from 'src/modules/address/schema/address.schema';
+import { AddressType } from 'src/common/enum/address_type.enum';
 
 export class CreateAddressDto {
   @IsEnum(AddressType)

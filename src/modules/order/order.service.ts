@@ -44,7 +44,11 @@ export class OrderService {
 
       const savedOrder = await order.save();
 
-      await this.cartService.clearCart(userId);
+      try {
+        await this.cartService.clearCart(userId);
+      } catch (clearError) {
+        console.error('Failed to clear cart after order creation:', clearError);
+      }
 
       return {
         order: savedOrder,

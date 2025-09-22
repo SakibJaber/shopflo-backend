@@ -10,7 +10,7 @@ export class Subcategory extends Document {
   name: string;
 
   @Prop({ type: Types.ObjectId, ref: 'Category', required: true })
-  category: Types.ObjectId; // Changed from parentCategoryId to category
+  category: Types.ObjectId; 
 
   @Prop({ type: Number, default: 0 })
   sortOrder?: number;

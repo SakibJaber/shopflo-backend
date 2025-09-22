@@ -8,9 +8,10 @@ import {
   UploadedFile,
   HttpStatus,
   Patch,
+  DefaultValuePipe,
+  ParseIntPipe,
   Query,
 } from '@nestjs/common';
-import { isValidObjectId } from 'mongoose';
 import { SubcategoryService } from './subcategory.service';
 import { CreateSubcategoryDto } from './dto/create-subcategory.dto';
 import { UpdateSubcategoryDto } from './dto/update-subcategory.dto';
@@ -21,16 +22,13 @@ export class SubcategoryController {
   constructor(private readonly subcategoryService: SubcategoryService) {}
 
   @Post()
-  @UseGlobalFileInterceptor({ fieldName: 'image' })
+  @UseGlobalFileInterceptor({ fieldName: 'image', maxCount: 1 })
   async create(
-    @Body() createSubcategoryDto: CreateSubcategoryDto,
+    @Body() dto: CreateSubcategoryDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
     try {
-      const subcategory = await this.subcategoryService.create(
-        createSubcategoryDto,
-        file,
-      );
+      const subcategory = await this.subcategoryService.create(dto, file);
       return {
         success: true,
         statusCode: HttpStatus.CREATED,
@@ -49,15 +47,18 @@ export class SubcategoryController {
 
   @Get()
   async findAll(
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 10,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
     @Query('category') category: string,
     @Query('search') search?: string,
   ) {
     try {
+      const validatedPage = page > 0 ? page : 1;
+      const validatedLimit = limit > 0 && limit <= 100 ? limit : 10;
+
       const result = await this.subcategoryService.findAll(
-        page,
-        limit,
+        validatedPage,
+        validatedLimit,
         category,
         search,
       );
@@ -72,7 +73,7 @@ export class SubcategoryController {
           page: result.page,
           limit: result.limit,
           totalPages: result.totalPages,
-          ...(search && { search }),
+          ...(search && { search }), // Include search term in meta if provided
         },
       };
     } catch (error) {
@@ -81,7 +82,6 @@ export class SubcategoryController {
         statusCode: HttpStatus.BAD_REQUEST,
         message: error.message || 'Failed to fetch subcategories',
         data: null,
-        meta: null,
       };
     }
   }
@@ -90,6 +90,15 @@ export class SubcategoryController {
   async findOne(@Param('id') id: string) {
     try {
       const subcategory = await this.subcategoryService.findOne(id);
+      if (!subcategory) {
+        return {
+          success: false,
+          statusCode: HttpStatus.NOT_FOUND,
+          message: 'Subcategory not found',
+          data: null,
+        };
+      }
+
       return {
         success: true,
         statusCode: HttpStatus.OK,
@@ -99,52 +108,22 @@ export class SubcategoryController {
     } catch (error) {
       return {
         success: false,
-        statusCode: HttpStatus.NOT_FOUND,
-        message: error.message || 'Subcategory not found',
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: error.message || 'Failed to fetch subcategory',
         data: null,
       };
     }
   }
 
   @Patch(':id')
-  @UseGlobalFileInterceptor({ fieldName: 'image' })
+  @UseGlobalFileInterceptor({ fieldName: 'image', maxCount: 1 })
   async update(
     @Param('id') id: string,
-    @Body() updateSubcategoryDto: UpdateSubcategoryDto,
+    @Body() dto: UpdateSubcategoryDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    // Ensure that category is a string and is valid
-    if (
-      updateSubcategoryDto.category &&
-      typeof updateSubcategoryDto.category === 'object' &&
-      'toString' in updateSubcategoryDto.category &&
-      typeof (updateSubcategoryDto.category as { toString: () => string })
-        .toString === 'function'
-    ) {
-      updateSubcategoryDto.category = (
-        updateSubcategoryDto.category as { toString: () => string }
-      ).toString(); // Ensure it's a string
-    }
-
-    // Validate category presence and format
-    if (
-      !updateSubcategoryDto.category ||
-      !isValidObjectId(updateSubcategoryDto.category)
-    ) {
-      return {
-        success: false,
-        statusCode: HttpStatus.BAD_REQUEST,
-        message: 'category is required and must be a valid ObjectId.',
-        data: null,
-      };
-    }
-
     try {
-      const updated = await this.subcategoryService.update(
-        id,
-        updateSubcategoryDto,
-        file,
-      );
+      const updated = await this.subcategoryService.update(id, dto, file);
       return {
         success: true,
         statusCode: HttpStatus.OK,
@@ -174,8 +153,8 @@ export class SubcategoryController {
     } catch (error) {
       return {
         success: false,
-        statusCode: HttpStatus.NOT_FOUND,
-        message: error.message || 'Subcategory not found',
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: error.message || 'Failed to delete subcategory',
         data: null,
       };
     }

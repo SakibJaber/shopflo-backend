@@ -1,14 +1,26 @@
 import {
+  IsArray,
   IsEnum,
   IsMongoId,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PaymentMethod } from 'src/common/enum/payment_method.enum';
+
+export class SizeQuantityDto {
+  @IsString()
+  @IsNotEmpty()
+  size: string;
+
+  @IsNumber()
+  @Min(0)
+  quantity: number;
+}
 
 export class OrderItemDto {
   @IsMongoId()
@@ -19,9 +31,10 @@ export class OrderItemDto {
   @IsNotEmpty()
   variant: string;
 
-  @IsNumber()
-  @IsNotEmpty()
-  quantity: number;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SizeQuantityDto)
+  sizeQuantities: SizeQuantityDto[];
 
   @IsNumber()
   @IsNotEmpty()
@@ -30,10 +43,6 @@ export class OrderItemDto {
   @IsString()
   @IsNotEmpty()
   color: string;
-
-  @IsString()
-  @IsNotEmpty()
-  size: string;
 
   @IsString()
   @IsOptional()

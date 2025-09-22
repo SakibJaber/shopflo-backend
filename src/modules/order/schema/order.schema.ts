@@ -10,6 +10,15 @@ import { PaymentStatus } from 'src/common/enum/payment_status.enum';
 export type OrderDocument = Order & Document;
 export type OrderItemDocument = OrderItem & Document;
 
+@Schema()
+export class SizeQuantity {
+  @Prop({ required: true })
+  size: string;
+
+  @Prop({ required: true, min: 0 })
+  quantity: number;
+}
+
 @Schema({ timestamps: true })
 export class OrderItem {
   @Prop({ type: Types.ObjectId, ref: Product.name, required: true })
@@ -18,17 +27,14 @@ export class OrderItem {
   @Prop({ type: Types.ObjectId, required: true })
   variant: Types.ObjectId;
 
-  @Prop({ required: true })
-  quantity: number;
+  @Prop({ type: [SizeQuantity], default: [] })
+  sizeQuantities: SizeQuantity[];
 
   @Prop({ required: true })
   price: number;
 
   @Prop({ required: true })
   color: string;
-
-  @Prop({ required: true })
-  size: string;
 
   @Prop()
   frontImage: string;
@@ -73,5 +79,6 @@ export class Order {
   estimatedDelivery: Date;
 }
 
+export const SizeQuantitySchema = SchemaFactory.createForClass(SizeQuantity);
 export const OrderItemSchema = SchemaFactory.createForClass(OrderItem);
 export const OrderSchema = SchemaFactory.createForClass(Order);

@@ -1,4 +1,22 @@
-import { PartialType } from '@nestjs/mapped-types';
-import { CreateSubcategoryDto } from './create-subcategory.dto';
+import { IsOptional, IsMongoId, IsNumber, IsBoolean } from 'class-validator';
+import { Types } from 'mongoose';
 
-export class UpdateSubcategoryDto extends PartialType(CreateSubcategoryDto) {}
+export class UpdateSubcategoryDto {
+  @IsOptional()
+  name?: string;
+
+  @IsOptional()
+  slug?: string;
+
+  @IsOptional()
+  @IsMongoId() 
+  category?: Types.ObjectId; 
+
+  @IsOptional()
+  @IsNumber()
+  sortOrder?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isVisible?: boolean;
+}

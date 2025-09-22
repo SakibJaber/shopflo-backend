@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  HttpStatus,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -16,6 +17,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
 import { ProductVariantDto } from 'src/modules/products/dto/product-variant.dto';
 import { UpdateVariantDto } from 'src/modules/products/dto/update-product-variant.dto';
+import { Size } from 'src/modules/sizes/schema/size.schema';
 
 @Injectable()
 export class ProductService {
@@ -107,45 +109,87 @@ export class ProductService {
   }
 
   async findAll(query: any) {
-    const { page = 1, limit = 10, search, category, subcategory } = query;
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      category,
+      subcategory,
+      sortBy = 'createdAt',
+      order = 'desc',
+    } = query;
+
     const skip = (page - 1) * limit;
     const filter: any = {};
 
-    if (search) {
-      filter.productName = { $regex: search, $options: 'i' };
+    try {
+      // Apply search filter
+      if (search) {
+        filter.$or = [
+          { productName: { $regex: search, $options: 'i' } },
+          { description: { $regex: search, $options: 'i' } },
+          { shortDescription: { $regex: search, $options: 'i' } },
+        ];
+      }
+
+      // Apply category filter - handle both string and ObjectId
+      if (category) {
+        if (!Types.ObjectId.isValid(category)) {
+          throw new BadRequestException('Invalid category ID');
+        }
+
+        // Handle both string and ObjectId storage in database
+        filter.$or = [
+          { category: category }, // Match as string
+          { category: new Types.ObjectId(category) }, // Match as ObjectId
+        ];
+      }
+
+      // Apply subcategory filter - handle both string and ObjectId
+      if (subcategory) {
+        if (!Types.ObjectId.isValid(subcategory)) {
+          throw new BadRequestException('Invalid subcategory ID');
+        }
+
+        // Handle both string and ObjectId storage in database
+        filter.$or = [
+          ...(filter.$or || []),
+          { subcategory: subcategory }, // Match as string
+          { subcategory: new Types.ObjectId(subcategory) }, // Match as ObjectId
+        ];
+      }
+
+      const [data, total] = await Promise.all([
+        this.productModel
+          .find(filter)
+          .populate('category', 'name')
+          .populate('subcategory', 'name')
+          .populate('brand', 'brandName brandLogo')
+          .populate('variants.color', 'name hexValue')
+          .populate('variants.size', 'name')
+          .skip(skip)
+          .limit(limit)
+          .exec(),
+        this.productModel.countDocuments(filter),
+      ]);
+
+      return {
+        success: true,
+        statusCode: 200,
+        message: 'Products fetched successfully',
+        data,
+        meta: {
+          total,
+          page: Number(page),
+          limit: Number(limit),
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        error.message || 'Failed to fetch products',
+      );
     }
-
-    if (category) {
-      filter.category = category;
-    }
-
-    if (subcategory) {
-      filter.subcategory = subcategory;
-    }
-
-    const [data, total] = await Promise.all([
-      this.productModel
-        .find(filter)
-        .populate('category', 'name')
-        .populate('subcategory', 'name')
-        .populate('brand', 'brandName brandLogo')
-        .populate('variants.color', 'name hexValue')
-        .populate('variants.size', 'name')
-        .skip(skip)
-        .limit(limit)
-        .exec(),
-      this.productModel.countDocuments(filter),
-    ]);
-
-    return {
-      data,
-      meta: {
-        total,
-        page: Number(page),
-        limit: Number(limit),
-        totalPages: Math.ceil(total / limit),
-      },
-    };
   }
 
   async findOne(id: string): Promise<Product> {
@@ -323,5 +367,34 @@ export class ProductService {
       (v: ProductVariantDocument) => v._id.toString() !== variantId,
     );
     await product.save();
+  }
+
+  async getAvailableSizes(
+    productId: string,
+    variantId: string,
+  ): Promise<Size[]> {
+    const product = await this.productModel
+      .findById(productId)
+      .populate('variants.size')
+      .exec();
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const variant = product.variants.find(
+      (v: any) => v._id.toString() === variantId,
+    );
+
+    if (!variant) {
+      throw new NotFoundException('Variant not found');
+    }
+
+    // Ensure all sizes are populated documents
+    const sizes = (variant.size as any[]).filter(
+      (size) => size && typeof size === 'object' && 'name' in size,
+    );
+
+    return sizes;
   }
 }
