@@ -3,17 +3,21 @@ import { Document, Types } from 'mongoose';
 import { Product } from 'src/modules/products/schema/product.schema';
 import { User } from 'src/modules/users/schema/user.schema';
 import { Size } from 'src/modules/sizes/schema/size.schema';
+import { Design } from 'src/modules/designs/schema/design.schema';
+import { Color } from 'src/modules/color/schema/color.schema';
 
 export type CartDocument = Cart & Document;
-export type CartItemDocument = CartItem & Document;
 
 @Schema()
-export class SizeQuantity {
-  @Prop({ type: Types.ObjectId, ref: Size.name, required: true })
-  size: Types.ObjectId;
+export class VariantSizeQuantity {
+  @Prop({ type: Types.ObjectId, ref: 'Color', required: true })
+  variant: Types.ObjectId; // This is the variant ID (color variant)
 
-  @Prop({ required: true, min: 0 })
-  quantity: number;
+  @Prop({ type: [{ 
+    size: { type: Types.ObjectId, ref: 'Size', required: true },
+    quantity: { type: Number, required: true, min: 0 }
+  }], default: [] })
+  sizeQuantities: { size: Types.ObjectId; quantity: number }[];
 }
 
 @Schema({ timestamps: true })
@@ -21,11 +25,11 @@ export class CartItem {
   @Prop({ type: Types.ObjectId, ref: Product.name, required: true })
   product: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, required: true })
-  variant: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: Design.name, required: false })
+  design?: Types.ObjectId;
 
-  @Prop({ type: [SizeQuantity], default: [] })
-  sizeQuantities: SizeQuantity[];
+  @Prop({ type: [VariantSizeQuantity], default: [] })
+  variantQuantities: VariantSizeQuantity[];
 
   @Prop({ default: false })
   isSelected: boolean;
@@ -33,14 +37,11 @@ export class CartItem {
   @Prop({ required: true })
   price: number;
 
-  @Prop({ required: true })
-  color: string;
+  @Prop({ type: Object, default: {} })
+  designData?: any;
 
-  @Prop()
-  frontImage: string;
-
-  @Prop()
-  backImage: string;
+  @Prop({ default: false })
+  isDesignItem: boolean;
 }
 
 @Schema({ timestamps: true })
@@ -55,11 +56,6 @@ export class Cart {
   isActive: boolean;
 }
 
-export const SizeQuantitySchema = SchemaFactory.createForClass(SizeQuantity);
+export const VariantSizeQuantitySchema = SchemaFactory.createForClass(VariantSizeQuantity);
 export const CartItemSchema = SchemaFactory.createForClass(CartItem);
 export const CartSchema = SchemaFactory.createForClass(Cart);
-
-// Index for better query performance
-CartSchema.index({ user: 1, isActive: 1 });
-CartSchema.index({ 'items.product': 1 });
-CartSchema.index({ 'items.variant': 1 });

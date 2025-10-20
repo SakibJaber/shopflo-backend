@@ -3,9 +3,9 @@ import {
   Get,
   Post,
   Patch,
-  Param,
-  Body,
   Delete,
+  Body,
+  Param,
   UseGuards,
   Req,
   HttpStatus,
@@ -15,9 +15,10 @@ import {
 import { CartService } from './cart.service';
 import { JwtAuthGuard } from 'src/common/guards/jwt.guard';
 import {
-  AddToCartDto,
+  AddRegularProductToCartDto,
   UpdateCartItemDto,
   RemoveFromCartDto,
+  AddDesignToCartDto,
 } from './dto/create-cart.dto';
 
 @Controller('carts')
@@ -25,19 +26,13 @@ import {
 export class CartController {
   constructor(private readonly cartService: CartService) {}
 
-  @Get('user/:userId')
-  async getCart(@Param('userId') userId: string, @Req() req) {
-    if (req.user.userId !== userId && req.user.role !== 'admin') {
-      return {
-        success: false,
-        statusCode: HttpStatus.FORBIDDEN,
-        message: 'Access denied',
-        data: null,
-      };
-    }
+  // ==================== GET CART ====================
+  @Get()
+  async getCart(@Req() req) {
+    const userId = req.user.userId;
 
     try {
-      const cart = await this.cartService.getCart(userId);
+      const cart = await this.cartService.getCartWithDetails(userId);
       return {
         success: true,
         statusCode: HttpStatus.OK,
@@ -54,81 +49,19 @@ export class CartController {
     }
   }
 
-  @Get('user/:userId/details')
-  async getCartWithDetails(@Param('userId') userId: string, @Req() req) {
-    if (req.user.userId !== userId && req.user.role !== 'admin') {
-      return {
-        success: false,
-        statusCode: HttpStatus.FORBIDDEN,
-        message: 'Access denied',
-        data: null,
-      };
-    }
-
-    try {
-      const cart = await this.cartService.getCartWithDetails(userId);
-      return {
-        success: true,
-        statusCode: HttpStatus.OK,
-        message: 'Cart with details fetched successfully',
-        data: cart,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to fetch cart details',
-        data: null,
-      };
-    }
-  }
-
-  @Get('user/:userId/count')
-  async getCartCount(@Param('userId') userId: string, @Req() req) {
-    if (req.user.userId !== userId && req.user.role !== 'admin') {
-      return {
-        success: false,
-        statusCode: HttpStatus.FORBIDDEN,
-        message: 'Access denied',
-        data: null,
-      };
-    }
-
-    try {
-      const count = await this.cartService.getCartCount(userId);
-      return {
-        success: true,
-        statusCode: HttpStatus.OK,
-        message: 'Cart count fetched successfully',
-        data: { count },
-      };
-    } catch (error) {
-      return {
-        success: false,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to fetch cart count',
-        data: null,
-      };
-    }
-  }
-
-  @Post('user/:userId')
-  async addToCart(
-    @Param('userId') userId: string,
-    @Body() addToCartDto: AddToCartDto,
+  // ==================== ADD ITEMS ====================
+  @Post('regular')
+  async addRegularProductToCart(
+    @Body() addRegularProductToCartDto: AddRegularProductToCartDto,
     @Req() req,
   ) {
-    if (req.user.userId !== userId && req.user.role !== 'admin') {
-      return {
-        success: false,
-        statusCode: HttpStatus.FORBIDDEN,
-        message: 'Access denied',
-        data: null,
-      };
-    }
+    const userId = req.user.userId;
 
     try {
-      const cart = await this.cartService.addToCart(userId, addToCartDto);
+      const cart = await this.cartService.addRegularProductToCart(
+        userId,
+        addRegularProductToCartDto,
+      );
       return {
         success: true,
         statusCode: HttpStatus.OK,
@@ -136,14 +69,10 @@ export class CartController {
         data: cart,
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        return {
-          success: false,
-          statusCode: HttpStatus.NOT_FOUND,
-          message: error.message,
-          data: null,
-        };
-      } else if (error instanceof BadRequestException) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
         return {
           success: false,
           statusCode: HttpStatus.BAD_REQUEST,
@@ -160,28 +89,58 @@ export class CartController {
     }
   }
 
-  @Patch('user/:userId/item/:productId/:variantId')
-  async updateCartItem(
-    @Param('userId') userId: string,
-    @Param('productId') productId: string,
-    @Param('variantId') variantId: string,
-    @Body() updateCartItemDto: UpdateCartItemDto,
+  @Post('design')
+  async addDesignToCart(
+    @Body() addDesignToCartDto: AddDesignToCartDto,
     @Req() req,
   ) {
-    if (req.user.userId !== userId && req.user.role !== 'admin') {
+    const userId = req.user.userId;
+
+    try {
+      const cart = await this.cartService.addDesignToCart(
+        userId,
+        addDesignToCartDto,
+      );
+      return {
+        success: true,
+        statusCode: HttpStatus.OK,
+        message: 'Designed product added to cart successfully',
+        data: cart,
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        return {
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: error.message,
+          data: null,
+        };
+      }
       return {
         success: false,
-        statusCode: HttpStatus.FORBIDDEN,
-        message: 'Access denied',
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: error.message || 'Failed to add design to cart',
         data: null,
       };
     }
+  }
+
+  // ==================== UPDATE ITEM ====================
+  @Patch('item/:itemId')
+  async updateCartItem(
+    @Param('itemId') itemId: string,
+    @Body() updateCartItemDto: UpdateCartItemDto,
+    @Req() req,
+  ) {
+    const userId = req.user.userId;
 
     try {
       const cart = await this.cartService.updateCartItem(
         userId,
-        productId,
-        variantId,
+        itemId,
         updateCartItemDto,
       );
       return {
@@ -208,30 +167,23 @@ export class CartController {
     }
   }
 
-  @Delete('user/:userId/item')
+  // ==================== REMOVE ITEM ====================
+  @Delete('item')
   async removeFromCart(
-    @Param('userId') userId: string,
     @Body() removeFromCartDto: RemoveFromCartDto,
     @Req() req,
   ) {
-    if (req.user.userId !== userId && req.user.role !== 'admin') {
-      return {
-        success: false,
-        statusCode: HttpStatus.FORBIDDEN,
-        message: 'Access denied',
-        data: null,
-      };
-    }
+    const userId = req.user.userId;
 
     try {
-      const cart = await this.cartService.removeFromCart(
+      const cart = await this.cartService.removeCartItem(
         userId,
-        removeFromCartDto,
+        removeFromCartDto.cartItemId,
       );
       return {
         success: true,
         statusCode: HttpStatus.OK,
-        message: 'Product removed from cart successfully',
+        message: 'Item removed from cart successfully',
         data: cart,
       };
     } catch (error) {
@@ -246,22 +198,16 @@ export class CartController {
       return {
         success: false,
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to remove product from cart',
+        message: error.message || 'Failed to remove item from cart',
         data: null,
       };
     }
   }
 
-  @Delete('user/:userId/clear')
-  async clearCart(@Param('userId') userId: string, @Req() req) {
-    if (req.user.userId !== userId && req.user.role !== 'admin') {
-      return {
-        success: false,
-        statusCode: HttpStatus.FORBIDDEN,
-        message: 'Access denied',
-        data: null,
-      };
-    }
+  // ==================== CLEAR CART ====================
+  @Delete('clear')
+  async clearCart(@Req() req) {
+    const userId = req.user.userId;
 
     try {
       const cart = await this.cartService.clearCart(userId);
@@ -284,50 +230,6 @@ export class CartController {
         success: false,
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
         message: error.message || 'Failed to clear cart',
-        data: null,
-      };
-    }
-  }
-
-  @Post('user/:userId/checkout')
-  async checkout(@Param('userId') userId: string, @Req() req) {
-    if (req.user.userId !== userId && req.user.role !== 'admin') {
-      return {
-        success: false,
-        statusCode: HttpStatus.FORBIDDEN,
-        message: 'Access denied',
-        data: null,
-      };
-    }
-
-    try {
-      const cart = await this.cartService.checkout(userId);
-      return {
-        success: true,
-        statusCode: HttpStatus.OK,
-        message: 'Checkout successful',
-        data: cart,
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        return {
-          success: false,
-          statusCode: HttpStatus.NOT_FOUND,
-          message: error.message,
-          data: null,
-        };
-      } else if (error instanceof BadRequestException) {
-        return {
-          success: false,
-          statusCode: HttpStatus.BAD_REQUEST,
-          message: error.message,
-          data: null,
-        };
-      }
-      return {
-        success: false,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to checkout',
         data: null,
       };
     }

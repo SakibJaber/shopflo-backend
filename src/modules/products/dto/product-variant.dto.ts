@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsEnum,
   IsString,
+  IsOptional,
 } from 'class-validator';
 import { ProductStatus } from 'src/common/enum/product.status.enum';
 import { VisibilityStatus } from 'src/common/enum/visibility-status.enum';
@@ -31,4 +32,12 @@ export class ProductVariantDto {
   @IsString()
   @IsNotEmpty()
   backImage: string;
+
+  @IsOptional()
+  @IsString()
+  leftImage?: string;
+
+  @IsOptional()
+  @IsString()
+  rightImage?: string;
 }

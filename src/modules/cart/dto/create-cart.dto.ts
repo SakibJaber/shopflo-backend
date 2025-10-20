@@ -1,16 +1,18 @@
 import {
   IsArray,
-  IsBoolean,
   IsMongoId,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
-  Min,
+  IsBoolean,
   ValidateNested,
+  Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class SizeQuantityDto {
   @IsMongoId()
+  @IsNotEmpty()
   size: string;
 
   @IsNumber()
@@ -18,38 +20,52 @@ export class SizeQuantityDto {
   quantity: number;
 }
 
-export class AddToCartDto {
+export class VariantQuantityDto {
   @IsMongoId()
-  product: string;
-
-  @IsMongoId()
-  variant: string;
+  @IsNotEmpty()
+  variant: string; // This is the variant ID (color variant)
 
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => SizeQuantityDto)
   sizeQuantities: SizeQuantityDto[];
+}
+
+export class AddRegularProductToCartDto {
+  @IsMongoId()
+  @IsNotEmpty()
+  product: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VariantQuantityDto)
+  variantQuantities: VariantQuantityDto[];
 
   @IsOptional()
   @IsBoolean()
   isSelected?: boolean;
 }
 
-export class UpdateCartItemDto {
-  @IsOptional()
+export class AddDesignToCartDto {
   @IsMongoId()
-  size?: string;
+  @IsNotEmpty()
+  design: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VariantQuantityDto)
+  variantQuantities: VariantQuantityDto[]; // Changed from single variant to array
 
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  quantity?: number;
-
+  @IsBoolean()
+  isSelected?: boolean;
+}
+export class UpdateCartItemDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => SizeQuantityDto)
-  sizeQuantities?: SizeQuantityDto[];
+  @Type(() => VariantQuantityDto)
+  variantQuantities?: VariantQuantityDto[];
 
   @IsOptional()
   @IsBoolean()
@@ -58,12 +74,6 @@ export class UpdateCartItemDto {
 
 export class RemoveFromCartDto {
   @IsMongoId()
-  product: string;
-
-  @IsMongoId()
-  variant: string;
-
-  @IsOptional()
-  @IsMongoId()
-  size?: string;
+  @IsNotEmpty()
+  cartItemId: string;
 }

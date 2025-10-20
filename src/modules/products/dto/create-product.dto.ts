@@ -42,5 +42,7 @@ export class CreateProductDto {
   @Max(100)
   discountPercentage: number;
 
-  // No variants here
+  @IsString()
+  @IsNotEmpty()
+  thumbnail: string; // New required field
 }

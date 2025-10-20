@@ -187,23 +187,36 @@ export class CategoriesService {
   }
 
   async remove(id: string): Promise<void> {
-    const deleted = await this.categoryModel.findByIdAndDelete(id);
-    if (!deleted) {
-      throw new NotFoundException({
-        statusCode: HttpStatus.NOT_FOUND,
-        message: `Category with ID ${id} not found`,
-      });
-    }
-
-    if (deleted.imageUrl) {
-      try {
-        await this.fileUploadService.deleteFile(deleted.imageUrl);
-      } catch {
-        /* noop */
+    const session = await this.categoryModel.db.startSession();
+    session.startTransaction();
+  
+    try {
+      const deleted = await this.categoryModel.findByIdAndDelete(id).session(session);
+      if (!deleted) {
+        throw new NotFoundException({
+          statusCode: HttpStatus.NOT_FOUND,
+          message: `Category with ID ${id} not found`,
+        });
       }
+  
+      // Delete associated image
+      if (deleted.imageUrl) {
+        try {
+          await this.fileUploadService.deleteFile(deleted.imageUrl);
+        } catch {
+          /* noop */
+        }
+      }
+  
+      // Remove all subcategories associated with this category
+      await this.subcategoryModel.deleteMany({ category: id }).session(session);
+  
+      await session.commitTransaction();
+    } catch (error) {
+      await session.abortTransaction();
+      throw error;
+    } finally {
+      session.endSession();
     }
-
-    // Remove all subcategories associated with this category
-    await this.subcategoryModel.deleteMany({ category: id });
   }
 }

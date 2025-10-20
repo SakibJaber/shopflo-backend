@@ -29,19 +29,42 @@ export class ProductService {
 
   async create(
     createProductDto: CreateProductDto,
-    files?: Express.Multer.File[],
+    file?: Express.Multer.File,
   ): Promise<Product> {
     try {
       const discountedPrice =
         createProductDto.price -
         createProductDto.price * (createProductDto.discountPercentage / 100);
 
+      let thumbnail: string | undefined;
+
+      if (file) {
+        thumbnail = await this.fileUploadService.handleUpload(file);
+      } else {
+        throw new BadRequestException('Product thumbnail image is required');
+      }
+
       const createdProduct = new this.productModel({
         ...createProductDto,
         discountedPrice,
+        thumbnail,
       });
+
       return await createdProduct.save();
     } catch (error) {
+      // Log the actual error for debugging
+      console.error('Product creation error:', error);
+
+      // If file was uploaded but product creation failed, delete the file
+      if (file) {
+        try {
+          const uploadedUrl = await this.fileUploadService.handleUpload(file);
+          await this.fileUploadService.deleteFile(uploadedUrl);
+        } catch (deleteError) {
+          console.error('Failed to cleanup file:', deleteError);
+        }
+      }
+
       throw new BadRequestException(error.message);
     }
   }
@@ -52,6 +75,8 @@ export class ProductService {
     files: {
       frontImage?: Express.Multer.File[];
       backImage?: Express.Multer.File[];
+      leftImage?: Express.Multer.File[];
+      rightImage?: Express.Multer.File[];
     },
   ): Promise<Product> {
     const product = await this.productModel.findById(productId);
@@ -85,6 +110,8 @@ export class ProductService {
     files: {
       frontImage?: Express.Multer.File[];
       backImage?: Express.Multer.File[];
+      leftImage?: Express.Multer.File[];
+      rightImage?: Express.Multer.File[];
     },
   ): Promise<ProductVariantDto[]> {
     const processedVariants = [...variants];
@@ -103,6 +130,19 @@ export class ProductService {
           files.backImage[i],
         );
       }
+      // Process new leftImage field
+      if (files.leftImage && files.leftImage[i]) {
+        variant.leftImage = await this.fileUploadService.handleUpload(
+          files.leftImage[i],
+        );
+      }
+
+      // Process new rightImage field
+      if (files.rightImage && files.rightImage[i]) {
+        variant.rightImage = await this.fileUploadService.handleUpload(
+          files.rightImage[i],
+        );
+      }
     }
 
     return processedVariants;
@@ -115,6 +155,12 @@ export class ProductService {
       search,
       category,
       subcategory,
+      color,
+      size,
+      brand,
+      price,
+      minPrice,
+      maxPrice,
       sortBy = 'createdAt',
       order = 'desc',
     } = query;
@@ -157,6 +203,161 @@ export class ProductService {
           { subcategory: subcategory }, // Match as string
           { subcategory: new Types.ObjectId(subcategory) }, // Match as ObjectId
         ];
+      }
+
+      // Apply brand filter
+      if (brand) {
+        if (Array.isArray(brand)) {
+          // Handle multiple brands as array
+          const brandFilters = brand
+            .map((b) => {
+              if (!Types.ObjectId.isValid(b)) {
+                throw new BadRequestException('Invalid brand ID');
+              }
+              return [{ brand: b }, { brand: new Types.ObjectId(b) }];
+            })
+            .flat();
+
+          filter.$or = [...(filter.$or || []), { $or: brandFilters }];
+        } else {
+          // Handle single brand
+          if (!Types.ObjectId.isValid(brand)) {
+            throw new BadRequestException('Invalid brand ID');
+          }
+          filter.$or = [
+            ...(filter.$or || []),
+            { brand: brand },
+            { brand: new Types.ObjectId(brand) },
+          ];
+        }
+      }
+
+      // Apply color filter (search in variants)
+      if (color) {
+        if (Array.isArray(color)) {
+          // Handle multiple colors
+          const colorObjectIds = color.map((c) => {
+            if (!Types.ObjectId.isValid(c)) {
+              throw new BadRequestException('Invalid color ID');
+            }
+            return new Types.ObjectId(c);
+          });
+          filter['variants.color'] = { $in: colorObjectIds };
+        } else {
+          // Handle single color
+          if (!Types.ObjectId.isValid(color)) {
+            throw new BadRequestException('Invalid color ID');
+          }
+          filter['variants.color'] = new Types.ObjectId(color);
+        }
+      }
+
+      // Apply size filter (search in variants)
+      if (size) {
+        if (Array.isArray(size)) {
+          // Handle multiple sizes
+          const sizeObjectIds = size.map((s) => {
+            if (!Types.ObjectId.isValid(s)) {
+              throw new BadRequestException('Invalid size ID');
+            }
+            return new Types.ObjectId(s);
+          });
+          filter['variants.size'] = { $in: sizeObjectIds };
+        } else {
+          // Handle single size
+          if (!Types.ObjectId.isValid(size)) {
+            throw new BadRequestException('Invalid size ID');
+          }
+          filter['variants.size'] = new Types.ObjectId(size);
+        }
+      }
+
+      // Initialize price filter object
+      const priceFilter: any = {};
+
+      // Handle price range format like "1265-5456"
+      if (price) {
+        const priceRange = price
+          .split('-')
+          .map((p: string) => parseInt(p.trim()));
+
+        if (
+          priceRange.length === 2 &&
+          !isNaN(priceRange[0]) &&
+          !isNaN(priceRange[1])
+        ) {
+          if (priceRange[0] > priceRange[1]) {
+            throw new BadRequestException(
+              'Minimum price cannot be greater than maximum price',
+            );
+          }
+
+          priceFilter.$gte = priceRange[0];
+          priceFilter.$lte = priceRange[1];
+        } else {
+          throw new BadRequestException(
+            'Invalid price range format. Use format: minPrice-maxPrice (e.g., 1265-5456)',
+          );
+        }
+      }
+
+      // Handle separate minPrice and maxPrice parameters (can be used with or without price range)
+      if (minPrice) {
+        const min = parseInt(minPrice);
+        if (isNaN(min) || min < 0) {
+          throw new BadRequestException(
+            'Invalid minPrice. Must be a positive number.',
+          );
+        }
+        priceFilter.$gte = min;
+      }
+
+      if (maxPrice) {
+        const max = parseInt(maxPrice);
+        if (isNaN(max) || max < 0) {
+          throw new BadRequestException(
+            'Invalid maxPrice. Must be a positive number.',
+          );
+        }
+        priceFilter.$lte = max;
+      }
+
+      // Validate that minPrice is not greater than maxPrice when both are provided
+      if (
+        priceFilter.$gte &&
+        priceFilter.$lte &&
+        priceFilter.$gte > priceFilter.$lte
+      ) {
+        throw new BadRequestException(
+          'minPrice cannot be greater than maxPrice',
+        );
+      }
+
+      // Apply price filter if any price conditions were set
+      if (Object.keys(priceFilter).length > 0) {
+        filter.discountedPrice = priceFilter;
+      }
+
+      // console.log('Final filter object:', JSON.stringify(filter, null, 2));
+
+      // Handle sorting
+      const sortOptions: any = {};
+      if (sortBy) {
+        const sortOrder = order === 'asc' ? 1 : -1;
+
+        // Map common sort fields to actual database fields
+        const sortFieldMap: { [key: string]: string } = {
+          title: 'productName',
+          name: 'productName',
+          price: 'discountedPrice',
+          createdAt: 'createdAt',
+          updatedAt: 'updatedAt',
+        };
+
+        const actualSortField = sortFieldMap[sortBy] || sortBy;
+        sortOptions[actualSortField] = sortOrder;
+      } else {
+        sortOptions.createdAt = -1; // Default sort
       }
 
       const [data, total] = await Promise.all([
@@ -213,8 +414,11 @@ export class ProductService {
     id: string,
     updateProductDto: UpdateProductDto,
     files?: {
+      image?: Express.Multer.File[];
       frontImage?: Express.Multer.File[];
       backImage?: Express.Multer.File[];
+      leftImage?: Express.Multer.File[];
+      rightImage?: Express.Multer.File[];
     },
   ): Promise<Product> {
     const existing = await this.productModel.findById(id);
@@ -234,6 +438,17 @@ export class ProductService {
         price - price * (discountPercentage / 100);
     }
 
+    // Handle thumbnail update
+    if (files?.image?.[0]) {
+      if (existing.thumbnail) {
+        await this.fileUploadService.deleteFile(existing.thumbnail);
+      }
+      updateProductDto.thumbnail = await this.fileUploadService.handleUpload(
+        files.image[0],
+      );
+    }
+
+    // Handle variant images if provided
     if (files && updateProductDto.variants) {
       const variantsWithImages = await this.processVariantImages(
         updateProductDto.variants,
@@ -287,6 +502,8 @@ export class ProductService {
     files?: {
       frontImage?: Express.Multer.File[];
       backImage?: Express.Multer.File[];
+      leftImage?: Express.Multer.File[];
+      rightImage?: Express.Multer.File[];
     },
   ): Promise<Product> {
     const product = await this.productModel.findById(productId);
@@ -319,6 +536,26 @@ export class ProductService {
           files.backImage[0],
         );
       }
+
+      // Handle new leftImage field
+      if (files.leftImage && files.leftImage[0]) {
+        if (variant.leftImage) {
+          await this.fileUploadService.deleteFile(variant.leftImage);
+        }
+        variant.leftImage = await this.fileUploadService.handleUpload(
+          files.leftImage[0],
+        );
+      }
+
+      // Handle new rightImage field
+      if (files.rightImage && files.rightImage[0]) {
+        if (variant.rightImage) {
+          await this.fileUploadService.deleteFile(variant.rightImage);
+        }
+        variant.rightImage = await this.fileUploadService.handleUpload(
+          files.rightImage[0],
+        );
+      }
     }
 
     if (updateVariantDto.color) {
@@ -339,6 +576,15 @@ export class ProductService {
       variant.stockStatus = updateVariantDto.stockStatus;
     }
 
+    // Handle new optional image fields
+    if (updateVariantDto.leftImage !== undefined) {
+      variant.leftImage = updateVariantDto.leftImage;
+    }
+
+    if (updateVariantDto.rightImage !== undefined) {
+      variant.rightImage = updateVariantDto.rightImage;
+    }
+
     await product.save();
     return product;
   }
@@ -356,11 +602,18 @@ export class ProductService {
       throw new NotFoundException('Variant not found');
     }
 
-    if (variant.frontImage) {
-      await this.fileUploadService.deleteFile(variant.frontImage);
-    }
-    if (variant.backImage) {
-      await this.fileUploadService.deleteFile(variant.backImage);
+    // Delete all associated files including new ones
+    const filesToDelete = [
+      variant.frontImage,
+      variant.backImage,
+      variant.leftImage,
+      variant.rightImage,
+    ].filter(Boolean);
+
+    for (const fileUrl of filesToDelete) {
+      if (fileUrl) {
+        await this.fileUploadService.deleteFile(fileUrl);
+      }
     }
 
     product.variants = product.variants.filter(
@@ -396,5 +649,184 @@ export class ProductService {
     );
 
     return sizes;
+  }
+
+  async getPopularProducts(query: any) {
+    const { page = 1, limit = 10 } = query;
+    const skip = (page - 1) * limit;
+
+    try {
+      // First, try to find products with salesCount > 0
+      let [data, total] = await Promise.all([
+        this.productModel
+          .find({ salesCount: { $gt: 0 } })
+          .populate('category', 'name')
+          .populate('subcategory', 'name')
+          .populate('brand', 'brandName brandLogo')
+          .populate('variants.color', 'name hexValue')
+          .populate('variants.size', 'name')
+          .sort({ salesCount: -1, viewCount: -1 })
+          .skip(skip)
+          .limit(limit)
+          .exec(),
+        this.productModel.countDocuments({ salesCount: { $gt: 0 } }),
+      ]);
+
+      // If no products with sales, get the most recently added products as fallback
+      if (data.length === 0) {
+        [data, total] = await Promise.all([
+          this.productModel
+            .find({})
+            .populate('category', 'name')
+            .populate('subcategory', 'name')
+            .populate('brand', 'brandName brandLogo')
+            .populate('variants.color', 'name hexValue')
+            .populate('variants.size', 'name')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .exec(),
+          this.productModel.countDocuments({}),
+        ]);
+      }
+
+      return {
+        success: true,
+        statusCode: 200,
+        message: 'Popular products fetched successfully',
+        data,
+        meta: {
+          total,
+          page: Number(page),
+          limit: Number(limit),
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    } catch (error) {
+      console.error('Error in getPopularProducts:', error);
+      throw new BadRequestException(
+        error.message || 'Failed to fetch popular products',
+      );
+    }
+  }
+
+  async getRelatedProducts(productId: string, query: any) {
+    const { page = 1, limit = 4 } = query;
+    const skip = (page - 1) * limit;
+
+    try {
+      // First, get the current product with minimal population to avoid circular references
+      const currentProduct = await this.productModel
+        .findById(productId, 'category subcategory brand')
+        .lean();
+
+      if (!currentProduct) {
+        throw new NotFoundException('Product not found');
+      }
+
+      // Extract IDs, handling both ObjectId and populated objects
+      const getReferenceId = (ref: any) => {
+        if (!ref) return null;
+        return ref._id ? ref._id.toString() : ref.toString();
+      };
+
+      const categoryId = getReferenceId(currentProduct.category);
+      const subcategoryId = getReferenceId(currentProduct.subcategory);
+      const brandId = getReferenceId(currentProduct.brand);
+
+      // Build the filter for related products
+      const filter: any = {
+        _id: { $ne: new Types.ObjectId(productId) }, // Exclude current product
+      };
+
+      // Define the type for filter conditions
+      type FilterCondition = {
+        category?: Types.ObjectId;
+        subcategory?: Types.ObjectId;
+        brand?: Types.ObjectId;
+      };
+      
+      // Add conditions for category, subcategory, or brand if they exist
+      const orConditions: FilterCondition[] = [];
+      
+      if (categoryId) {
+        orConditions.push({ category: new Types.ObjectId(categoryId) });
+      }
+      
+      if (subcategoryId) {
+        orConditions.push({ subcategory: new Types.ObjectId(subcategoryId) });
+      }
+      
+      if (brandId) {
+        orConditions.push({ brand: new Types.ObjectId(brandId) });
+      }
+
+      // If no valid conditions, fall back to any product (except current one)
+      if (orConditions.length === 0) {
+        // Just get any other products
+        const [data, total] = await Promise.all([
+          this.productModel
+            .find({ _id: { $ne: new Types.ObjectId(productId) } })
+            .populate('category', 'name')
+            .populate('subcategory', 'name')
+            .populate('brand', 'brandName brandLogo')
+            .populate('variants.color', 'name hexValue')
+            .populate('variants.size', 'name')
+            .sort({ createdAt: -1 }) // Sort by newest first as fallback
+            .limit(limit)
+            .skip(skip)
+            .exec(),
+          this.productModel.countDocuments({ _id: { $ne: new Types.ObjectId(productId) } }),
+        ]);
+
+        return {
+          success: true,
+          statusCode: 200,
+          message: 'Related products fetched successfully',
+          data,
+          meta: {
+            total,
+            page: Number(page),
+            limit: Number(limit),
+            totalPages: Math.ceil(total / limit),
+          },
+        };
+      }
+
+      filter.$or = orConditions;
+
+      const [data, total] = await Promise.all([
+        this.productModel
+          .find(filter)
+          .populate('category', 'name')
+          .populate('subcategory', 'name')
+          .populate('brand', 'brandName brandLogo')
+          .populate('variants.color', 'name hexValue')
+          .populate('variants.size', 'name')
+          .sort({ salesCount: -1, viewCount: -1, createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .exec(),
+        this.productModel.countDocuments(filter),
+      ]);
+
+      return {
+        success: true,
+        statusCode: 200,
+        message: 'Related products fetched successfully',
+        data,
+        meta: {
+          total,
+          page: Number(page),
+          limit: Number(limit),
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    } catch (error) {
+      console.error('Error in getRelatedProducts:', error);
+      throw new BadRequestException(
+        error.message || 'Failed to fetch related products',
+      );
+    }
   }
 }

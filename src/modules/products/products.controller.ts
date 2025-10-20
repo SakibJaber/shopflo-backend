@@ -12,8 +12,8 @@ import {
   BadRequestException,
   NotFoundException,
   UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
-import { Document, Types } from 'mongoose';
 import { ProductService } from 'src/modules/products/products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -26,13 +26,13 @@ export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
   @Post()
-  @UseGlobalFileInterceptor({ fieldName: 'images', maxCount: 20 })
+  @UseGlobalFileInterceptor({ fieldName: 'image', maxCount: 1 })
   async create(
     @Body() createProductDto: CreateProductDto,
-    @UploadedFiles() files: Express.Multer.File[],
+    @UploadedFile() file?: Express.Multer.File, // Single file, not array
   ) {
     try {
-      const product = await this.productService.create(createProductDto, files);
+      const product = await this.productService.create(createProductDto, file);
 
       return {
         success: true,
@@ -49,7 +49,7 @@ export class ProductController {
 
   @Patch(':id/variants')
   @UseGlobalFileInterceptor({
-    fieldName: ['frontImage', 'backImage'],
+    fieldName: ['frontImage', 'backImage', 'leftImage', 'rightImage'],
     maxCount: 20,
   })
   async addVariants(
@@ -59,6 +59,8 @@ export class ProductController {
     files: {
       frontImage?: Express.Multer.File[];
       backImage?: Express.Multer.File[];
+      leftImage?: Express.Multer.File[]; // New
+      rightImage?: Express.Multer.File[]; // New
     },
   ) {
     try {
@@ -74,6 +76,8 @@ export class ProductController {
           stockStatus: body.stockStatus,
           frontImage: '', // Will be populated by file upload
           backImage: '', // Will be populated by file upload
+          leftImage: '', // Will be populated by file upload
+          rightImage: '', // Will be populated by file upload
         },
       ];
 
@@ -118,6 +122,22 @@ export class ProductController {
     }
   }
 
+  @Get('popular')
+  async getPopularProducts(@Query() query: any) {
+    try {
+      const result = await this.productService.getPopularProducts(query);
+      return {
+        message: 'Popular products fetched successfully',
+        data: result.data,
+        meta: result.meta,
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        error.message || 'Failed to fetch popular products',
+      );
+    }
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     try {
@@ -136,16 +156,25 @@ export class ProductController {
 
   @Patch(':id')
   @UseGlobalFileInterceptor({
-    fieldName: ['frontImage', 'backImage'],
-    maxCount: 20,
+    fieldName: [
+      'image',
+      'frontImage',
+      'backImage',
+      'leftImage',
+      'rightImage',
+    ],
+    maxCount: 1,
   })
   async update(
     @Param('id') id: string,
     @Body() updateProductDto: UpdateProductDto,
     @UploadedFiles()
     files: {
+      image?: Express.Multer.File[];
       frontImage?: Express.Multer.File[];
       backImage?: Express.Multer.File[];
+      leftImage?: Express.Multer.File[];
+      rightImage?: Express.Multer.File[];
     },
   ) {
     try {
@@ -182,8 +211,8 @@ export class ProductController {
 
   @Patch(':productId/variants/:variantId')
   @UseGlobalFileInterceptor({
-    fieldName: ['frontImage', 'backImage'],
-    maxCount: 1,
+    fieldName: ['frontImage', 'backImage', 'leftImage', 'rightImage'],
+    maxCount: 20,
   })
   async updateVariant(
     @Param('productId') productId: string,
@@ -193,6 +222,8 @@ export class ProductController {
     files: {
       frontImage?: Express.Multer.File[];
       backImage?: Express.Multer.File[];
+      leftImage?: Express.Multer.File[]; // New
+      rightImage?: Express.Multer.File[]; // New
     },
   ) {
     try {
@@ -250,6 +281,22 @@ export class ProductController {
       }
       throw new BadRequestException(
         error.message || 'Failed to delete variant',
+      );
+    }
+  }
+
+  @Get(':id/related')
+  async getRelatedProducts(@Param('id') id: string, @Query() query: any) {
+    try {
+      const result = await this.productService.getRelatedProducts(id, query);
+      return {
+        message: 'Related products fetched successfully',
+        data: result.data,
+        meta: result.meta,
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        error.message || 'Failed to fetch related products',
       );
     }
   }

@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsEnum,
   IsArray,
+  IsString,
 } from 'class-validator';
 import { ProductStatus } from 'src/common/enum/product.status.enum';
 import { VisibilityStatus } from 'src/common/enum/visibility-status.enum';
@@ -27,8 +28,18 @@ export class UpdateVariantDto {
   stockStatus?: ProductStatus;
 
   @IsOptional()
+  @IsString()
   frontImage?: string;
 
   @IsOptional()
+  @IsString()
   backImage?: string;
+
+  @IsOptional()
+  @IsString()
+  leftImage?: string;
+
+  @IsOptional()
+  @IsString()
+  rightImage?: string;
 }

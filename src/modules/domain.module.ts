@@ -18,6 +18,11 @@ import { BrandModule } from './brand/brand.module';
 import { OrderModule } from './order/order.module';
 import { AddressModule } from './address/address.module';
 import { PaymentModule } from './payment/payment.module';
+import { BannersModule } from './banner/banner.module';
+import { IconsModule } from './icon/icon.module';
+
+import { DesignsModule } from './designs/designs.module';
+import { ChartModule } from './chart/chart.module';
 
 @Module({
   imports: [
@@ -40,6 +45,10 @@ import { PaymentModule } from './payment/payment.module';
     OrderModule,
     AddressModule,
     PaymentModule,
+    BannersModule,
+    IconsModule,
+    DesignsModule,
+    ChartModule,
   ],
 })
 export class DomainModule {}

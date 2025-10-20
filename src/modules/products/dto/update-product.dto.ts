@@ -52,6 +52,10 @@ export class UpdateProductDto {
   discountedPrice: number;
 
   @IsOptional()
+  @IsString()
+  thumbnail?: string; // New optional field
+
+  @IsOptional()
   @IsArray()
   @IsMongoId({ each: true })
   variants?: ProductVariantDto[];

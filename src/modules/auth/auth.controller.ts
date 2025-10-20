@@ -1,4 +1,12 @@
-import { Controller, Post, Body, Req, UseGuards, Get, Res } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Req,
+  UseGuards,
+  Get,
+  Res,
+} from '@nestjs/common';
 import { Response } from 'express';
 import { AuthService } from './auth.service';
 import { SignupAuthDto } from './dto/signup-auth.dto';
@@ -15,8 +23,25 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('signup')
-  signup(@Body() dto: SignupAuthDto) {
-    return this.authService.signup(dto);
+  async signup(@Body() dto: SignupAuthDto) {
+    try {
+      const result = await this.authService.signup(dto);
+      return {
+        success: true,
+        statusCode: 201,
+        message: result.message,
+        data: {
+          user: result.user,
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        statusCode: error.status || 500,
+        message: error.message,
+        data: null,
+      };
+    }
   }
 
   @Post('login')
@@ -65,7 +90,7 @@ export class AuthController {
   async googleAuthCallback(@Req() req: any, @Res() res: Response) {
     try {
       const tokens = await this.authService.googleLogin(req.user);
-      
+
       // Option 1: Redirect with tokens in query params (less secure)
       return res.redirect(
         `${process.env.FRONTEND_URL}/auth/success?accessToken=${tokens.accessToken}&refreshToken=${tokens.refreshToken}`,
@@ -78,17 +103,19 @@ export class AuthController {
       //   sameSite: 'lax',
       //   maxAge: 60 * 60 * 1000, // 1 hour
       // });
-      // 
+      //
       // res.cookie('refreshToken', tokens.refreshToken, {
       //   httpOnly: true,
       //   secure: process.env.NODE_ENV === 'production',
       //   sameSite: 'lax',
       //   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       // });
-      // 
+      //
       // return res.redirect(`${process.env.FRONTEND_URL}/dashboard`);
     } catch (error) {
-      return res.redirect(`${process.env.FRONTEND_URL}/auth/error?message=${error.message}`);
+      return res.redirect(
+        `${process.env.FRONTEND_URL}/auth/error?message=${error.message}`,
+      );
     }
   }
 
@@ -102,5 +129,4 @@ export class AuthController {
       role: req.user.role,
     };
   }
-  
 }

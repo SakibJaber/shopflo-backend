@@ -26,6 +26,12 @@ export class ProductVariant extends Document {
 
   @Prop({ required: true })
   backImage: string;
+
+  @Prop({ required: false }) // New optional field
+  leftImage?: string;
+
+  @Prop({ required: false }) // New optional field
+  rightImage?: string;
 }
 
 export const ProductVariantSchema =
@@ -62,8 +68,23 @@ export class Product {
   @Prop({ required: true, min: 0 })
   discountedPrice: number;
 
+  @Prop({ required: true }) // New required field
+  thumbnail: string;
+
   @Prop({ type: [ProductVariantSchema], default: [] })
   variants: ProductVariant[];
+
+  @Prop({ default: 0 })
+  salesCount: number;
+
+  @Prop({ default: 0 })
+  viewCount: number;
+
+  @Prop({ default: 0 })
+  rating: number;
+
+  @Prop({ default: 0 })
+  reviewCount: number;
 }
 
 export const ProductSchema = SchemaFactory.createForClass(Product);

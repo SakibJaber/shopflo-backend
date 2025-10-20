@@ -19,6 +19,6 @@ import { SubcategoryModule } from '../subcategory/subcategory.module';
   ],
   controllers: [CategoriesController],
   providers: [CategoriesService],
-  exports: [CategoriesService], // Export MongooseModule for DI
+  exports: [CategoriesService], 
 })
 export class CategoriesModule {}
