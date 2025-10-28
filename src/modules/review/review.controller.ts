@@ -57,7 +57,7 @@ export class ReviewController {
     const [items, total] = await Promise.all([
       this.reviewService['reviewModel']
         .find({ product: productId })
-        .populate('user')
+        .populate('user', 'name firstName lastName')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit))
