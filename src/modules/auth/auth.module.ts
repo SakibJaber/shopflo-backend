@@ -9,6 +9,7 @@ import { GoogleStrategy } from 'src/modules/auth/strategy/google.strategy';
 import { JwtRefreshStrategy } from 'src/modules/auth/strategy/jwt-refresh.strategy';
 import { JwtStrategy } from 'src/modules/auth/strategy/jwt.strategy';
 import { MailModule } from 'src/modules/mail/mail.module';
+import { NotificationsModule } from 'src/modules/notifications/notifications.module';
 import { UsersModule } from 'src/modules/users/users.module';
 
 @Module({
@@ -16,6 +17,7 @@ import { UsersModule } from 'src/modules/users/users.module';
     UsersModule,
     PassportModule,
     MailModule,
+    NotificationsModule,
     ThrottlerModule.forRoot({
       throttlers: [
         {

@@ -17,6 +17,9 @@ import { VerifyOtpDto } from 'src/modules/auth/dto/verify-otp.dto';
 import { UserStatus } from 'src/common/enum/user.status.enum';
 import { JwtPayload } from 'src/common/interface/jwtPayload.interface';
 import { User, UserDocument } from 'src/modules/users/schema/user.schema';
+import { NotificationPriority } from '../notifications/schema/notification.schema';
+import { NotificationService } from 'src/modules/notifications/notifications.service';
+import { NotificationType } from 'src/common/enum/notification_type.enum';
 
 @Injectable()
 export class AuthService {
@@ -26,6 +29,7 @@ export class AuthService {
     private mailService: MailService,
     private jwt: JwtService,
     private config: ConfigService,
+    private notificationService: NotificationService,
   ) {
     this.otpExpiryMs =
       (+this.config.get<number>('OTP_EXPIRATION_MINUTES')! || 15) * 60 * 1000;
@@ -42,6 +46,23 @@ export class AuthService {
       password: hash,
     });
 
+    // 🔔 NOTIFICATION: Notify admins about new user registration
+    try {
+      const adminUsers = await this.usersService.getAdminUsers();
+      const adminIds = adminUsers.map((admin) =>
+        (admin as any)._id?.toString(),
+      );
+
+      await this.notificationService.notifyNewUser({
+        userId: (user as any)._id?.toString(),
+        userName: `${user.firstName} ${user.lastName}`,
+        email: user.email,
+        adminIds: adminIds.filter((id) => id) as string[], // Filter out undefined
+      });
+    } catch (notificationError) {
+      console.error('Failed to send new user notification:', notificationError);
+    }
+
     return { message: 'Account created', user };
   }
 
@@ -56,16 +77,55 @@ export class AuthService {
         throw new UnauthorizedException('Your account has been blocked');
     }
 
-    const tokens = await this.getTokens(user.id, user.email, user.role);
+    const tokens = await this.getTokens(
+      (user as any)._id?.toString(),
+      user.email,
+      user.role,
+    );
     await this.usersService.updateRefreshToken(
-      user.id,
+      (user as any)._id?.toString(),
       await bcrypt.hash(tokens.refreshToken, 10),
     );
+
+    // 🔔 NOTIFICATION: Notify about successful login (security notification)
+    try {
+      await this.notificationService.createNotification({
+        recipient: (user as any)._id?.toString(),
+        title: 'Login Successful',
+        message: 'You have successfully logged into your account.',
+        type: NotificationType.LOGIN_SUCCESS,
+        priority: NotificationPriority.LOW,
+        metadata: {
+          loginTime: new Date().toISOString(),
+          userAgent: dto.userAgent,
+        },
+      });
+    } catch (notificationError) {
+      console.error('Failed to send login notification:', notificationError);
+    }
+
     return tokens;
   }
 
   async logout(userId: string) {
     await this.usersService.updateRefreshToken(userId, null);
+
+    // 🔔 NOTIFICATION: Notify about logout (security notification)
+    try {
+      await this.notificationService.createNotification({
+        recipient: userId,
+        title: 'Logout Successful',
+        message: 'You have successfully logged out of your account.',
+        type: NotificationType.LOGOUT,
+        priority: NotificationPriority.LOW,
+        metadata: {
+          logoutTime: new Date().toISOString(),
+        },
+      });
+    } catch (notificationError) {
+      console.error('Failed to send logout notification:', notificationError);
+    }
+
     return { message: 'Logged out successfully' };
   }
 
@@ -82,9 +142,13 @@ export class AuthService {
     const match = await bcrypt.compare(refreshToken, user.refreshToken);
     if (!match) throw new ForbiddenException('Invalid refresh token');
 
-    const tokens = await this.getTokens(user.id, user.email, user.role);
+    const tokens = await this.getTokens(
+      (user as any)._id?.toString(),
+      user.email,
+      user.role,
+    );
     await this.usersService.updateRefreshToken(
-      user.id,
+      (user as any)._id?.toString(),
       await bcrypt.hash(tokens.refreshToken, 10),
     );
     return tokens;
@@ -115,11 +179,34 @@ export class AuthService {
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const hash = await bcrypt.hash(code, 10);
-    user.resetPasswordCodeHash = hash;
-    user.resetPasswordExpires = new Date(Date.now() + this.otpExpiryMs);
-    await user.save();
+    (user as any).resetPasswordCodeHash = hash;
+    (user as any).resetPasswordExpires = new Date(
+      Date.now() + this.otpExpiryMs,
+    );
+    await (user as any).save();
 
     await this.mailService.sendResetPasswordOtp(dto.email, code);
+
+    // 🔔 NOTIFICATION: Notify about password reset request
+    try {
+      await this.notificationService.createNotification({
+        recipient: (user as any)._id?.toString(),
+        title: 'Password Reset Requested',
+        message:
+          'A password reset has been requested for your account. Check your email for the OTP.',
+        type: NotificationType.PASSWORD_RESET,
+        priority: NotificationPriority.HIGH,
+        metadata: {
+          requestTime: new Date().toISOString(),
+        },
+      });
+    } catch (notificationError) {
+      console.error(
+        'Failed to send password reset notification:',
+        notificationError,
+      );
+    }
+
     return { message: 'OTP sent to your email' };
   }
 
@@ -128,15 +215,15 @@ export class AuthService {
     const user = await this.usersService.findByEmail(dto.email);
     if (
       !user ||
-      !user.resetPasswordCodeHash ||
-      !user.resetPasswordExpires ||
-      user.resetPasswordExpires < new Date()
+      !(user as any).resetPasswordCodeHash ||
+      !(user as any).resetPasswordExpires ||
+      (user as any).resetPasswordExpires < new Date()
     ) {
       throw new BadRequestException('OTP expired or invalid');
     }
 
-    if (user.otpAttempts >= user.maxOtpAttempts) {
-      await this.usersService.updateUser(user.id, {
+    if ((user as any).otpAttempts >= (user as any).maxOtpAttempts) {
+      await this.usersService.updateUser((user as any)._id?.toString(), {
         resetPasswordCodeHash: null,
         resetPasswordExpires: null,
         otpAttempts: 0,
@@ -148,19 +235,19 @@ export class AuthService {
 
     const match = await bcrypt.compare(
       dto.code.toString(),
-      user.resetPasswordCodeHash,
+      (user as any).resetPasswordCodeHash,
     );
     if (!match) {
-      await this.usersService.updateUser(user.id, {
-        otpAttempts: user.otpAttempts + 1,
+      await this.usersService.updateUser((user as any)._id?.toString(), {
+        otpAttempts: (user as any).otpAttempts + 1,
       });
       throw new BadRequestException(
-        `Invalid OTP. ${user.maxOtpAttempts - user.otpAttempts - 1} attempts remaining.`,
+        `Invalid OTP. ${(user as any).maxOtpAttempts - (user as any).otpAttempts - 1} attempts remaining.`,
       );
     }
 
     const payload: JwtPayload = {
-      userId: user.id,
+      userId: (user as any)._id?.toString(),
       email: user.email,
       role: user.role,
     };
@@ -169,53 +256,133 @@ export class AuthService {
       expiresIn: this.config.get<string>('JWT_ACC_EXPIRATION'),
     });
 
-    await this.usersService.updateUser(user.id, {
+    await this.usersService.updateUser((user as any)._id?.toString(), {
       resetPasswordCodeHash: null,
       resetPasswordExpires: null,
       otpAttempts: 0,
     });
 
+    // 🔔 NOTIFICATION: Notify about successful OTP verification
+    try {
+      await this.notificationService.createNotification({
+        recipient: (user as any)._id?.toString(),
+        title: 'OTP Verified',
+        message:
+          'Your OTP has been verified successfully. You can now reset your password.',
+        type: NotificationType.SYSTEM_ALERT,
+        priority: NotificationPriority.MEDIUM,
+      });
+    } catch (notificationError) {
+      console.error(
+        'Failed to send OTP verification notification:',
+        notificationError,
+      );
+    }
+
     return { resetToken };
   }
 
- async validateOAuthUser(googleUser: {
-  email: string;
-  firstName: string;
-  lastName: string;
-  picture?: string;
-  id: string;
-}): Promise<UserDocument> { // Return UserDocument instead of User
-  let user = await this.usersService.findByEmail(googleUser.email) as UserDocument;
+  async validateOAuthUser(googleUser: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    picture?: string;
+    id: string;
+  }): Promise<UserDocument> {
+    let user = (await this.usersService.findByEmail(
+      googleUser.email,
+    )) as UserDocument;
 
-  if (!user) {
-    // Create new user without password for Google OAuth
-    user = await this.usersService.createUser({
-      email: googleUser.email,
-      firstName: googleUser.firstName,
-      lastName: googleUser.lastName,
-      imageUrl: googleUser.picture,
-      googleId: googleUser.id,
-      password: undefined, // Use undefined instead of null
-      status: UserStatus.APPROVED,
-    }) as UserDocument;
-  } else if (!user.googleId) {
-    // Update existing user with Google ID
-    user.googleId = googleUser.id;
-    user.imageUrl = googleUser.picture;
-    await user.save();
+    if (!user) {
+      // Create new user without password for Google OAuth
+      user = (await this.usersService.createUser({
+        email: googleUser.email,
+        firstName: googleUser.firstName,
+        lastName: googleUser.lastName,
+        imageUrl: googleUser.picture,
+        googleId: googleUser.id,
+        password: undefined,
+        status: UserStatus.APPROVED,
+      })) as UserDocument;
+
+      // 🔔 NOTIFICATION: Notify admins about new Google OAuth user
+      try {
+        const adminUsers = await this.usersService.getAdminUsers();
+        const adminIds = adminUsers.map((admin) =>
+          (admin as any)._id?.toString(),
+        );
+
+        await this.notificationService.notifyNewUser({
+          userId: (user as any)._id?.toString(),
+          userName: `${user.firstName} ${user.lastName}`,
+          email: user.email,
+          adminIds: adminIds.filter((id) => id) as string[],
+        });
+      } catch (notificationError) {
+        console.error(
+          'Failed to send new Google user notification:',
+          notificationError,
+        );
+      }
+    } else if (!(user as any).googleId) {
+      // Update existing user with Google ID
+      (user as any).googleId = googleUser.id;
+      (user as any).imageUrl = googleUser.picture;
+      await (user as any).save();
+
+      // 🔔 NOTIFICATION: Notify about Google account linking
+      try {
+        await this.notificationService.createNotification({
+          recipient: (user as any)._id?.toString(),
+          title: 'Google Account Linked',
+          message: 'Your account has been successfully linked with Google.',
+          type: NotificationType.GOOGLE_OAUTH,
+          priority: NotificationPriority.MEDIUM,
+        });
+      } catch (notificationError) {
+        console.error(
+          'Failed to send Google linking notification:',
+          notificationError,
+        );
+      }
+    }
+
+    return user;
   }
 
-  return user;
-}
+  async googleLogin(user: UserDocument) {
+    const tokens = await this.getTokens(
+      (user as any)._id?.toString(),
+      user.email,
+      user.role,
+    );
+    await this.usersService.updateRefreshToken(
+      (user as any)._id?.toString(),
+      await bcrypt.hash(tokens.refreshToken, 10),
+    );
 
-async googleLogin(user: UserDocument) { // Accept UserDocument
-  const tokens = await this.getTokens(user.id.toString(), user.email, user.role);
-  await this.usersService.updateRefreshToken(
-    user.id.toString(),
-    await bcrypt.hash(tokens.refreshToken, 10),
-  );
-  return tokens;
-}
+    // 🔔 NOTIFICATION: Notify about Google OAuth login
+    try {
+      await this.notificationService.createNotification({
+        recipient: (user as any)._id?.toString(),
+        title: 'Google Login Successful',
+        message: 'You have successfully logged in using Google.',
+        type: NotificationType.GOOGLE_OAUTH,
+        priority: NotificationPriority.LOW,
+        metadata: {
+          loginTime: new Date().toISOString(),
+          loginMethod: 'google',
+        },
+      });
+    } catch (notificationError) {
+      console.error(
+        'Failed to send Google login notification:',
+        notificationError,
+      );
+    }
+
+    return tokens;
+  }
 
   // Reset password using resetToken
   async resetPassword(dto: ResetPasswordDto) {
@@ -228,15 +395,34 @@ async googleLogin(user: UserDocument) { // Accept UserDocument
       throw new BadRequestException('Invalid or expired reset token');
     }
 
-    const user = await this.usersService.findById(payload.sub);
+    const user = await this.usersService.findById(payload.userId);
     if (!user) throw new BadRequestException('User no longer exists');
 
     if (user.status === UserStatus.BLOCKED)
       throw new ForbiddenException('Account is blocked');
 
-    user.password = await bcrypt.hash(dto.newPassword, 10);
-    user.refreshToken = null;
-    await user.save();
+    (user as any).password = await bcrypt.hash(dto.newPassword, 10);
+    (user as any).refreshToken = null;
+    await (user as any).save();
+
+    // 🔔 NOTIFICATION: Notify about successful password reset
+    try {
+      await this.notificationService.createNotification({
+        recipient: (user as any)._id?.toString(),
+        title: 'Password Reset Successful',
+        message: 'Your password has been reset successfully.',
+        type: NotificationType.PASSWORD_RESET,
+        priority: NotificationPriority.HIGH,
+        metadata: {
+          resetTime: new Date().toISOString(),
+        },
+      });
+    } catch (notificationError) {
+      console.error(
+        'Failed to send password reset success notification:',
+        notificationError,
+      );
+    }
 
     return { message: 'Password reset successful' };
   }

@@ -6,12 +6,18 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { UserStatus } from 'src/common/enum/user.status.enum';
-
 import { User, UserDocument } from 'src/modules/users/schema/user.schema';
+import { NotificationPriority } from '../notifications/schema/notification.schema';
+import { NotificationService } from 'src/modules/notifications/notifications.service';
+import { NotificationType } from 'src/common/enum/notification_type.enum';
+import { Role } from 'src/common/enum/user_role.enum';
 
 @Injectable()
 export class UsersService {
-  constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {}
+  constructor(
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    private notificationService: NotificationService,
+  ) {}
 
   async findByEmail(email: string) {
     return await this.userModel.findOne({ email }).exec();
@@ -33,14 +39,35 @@ export class UsersService {
     const user = await this.userModel.findById(id);
     if (!user) throw new NotFoundException('User not found');
 
-    user.status = status;
+    (user as any).status = status;
 
     // Revoke tokens when blocking
     if (status === UserStatus.BLOCKED) {
-      user.refreshToken = null;
+      (user as any).refreshToken = null;
+
+      // 🔔 NOTIFICATION: Notify user about account blocking
+      try {
+        await this.notificationService.createNotification({
+          recipient: (user as any)._id?.toString(),
+          title: 'Account Blocked',
+          message:
+            'Your account has been blocked by an administrator. Please contact support for more information.',
+          type: NotificationType.ACCOUNT_BLOCKED,
+          priority: NotificationPriority.HIGH,
+          metadata: {
+            blockedTime: new Date().toISOString(),
+            status: 'BLOCKED',
+          },
+        });
+      } catch (notificationError) {
+        console.error(
+          'Failed to send account blocked notification:',
+          notificationError,
+        );
+      }
     }
 
-    await user.save();
+    await (user as any).save();
 
     return { message: `User status updated to ${status}` };
   }
@@ -54,13 +81,13 @@ export class UsersService {
     if (!user) throw new NotFoundException('User not found');
 
     Object.assign(user, data);
-    await user.save();
+    await (user as any).save();
     return user;
   }
 
   async createUser(data: Partial<User>): Promise<User> {
     const user = new this.userModel(data);
-    return await user.save();
+    return await (user as any).save();
   }
 
   async findAll(filters?: {
@@ -86,7 +113,7 @@ export class UsersService {
         .find(query)
         .skip(skip)
         .limit(limit)
-        .select('-password -refreshToken') // Exclude sensitive fields
+        .select('-password -refreshToken')
         .exec();
 
       const total = await this.userModel.countDocuments(query);
@@ -107,10 +134,35 @@ export class UsersService {
 
   // Delete a user permanently
   async deleteUser(id: string) {
-    const result = await this.userModel.findByIdAndDelete(id);
-    if (!result) {
+    const user = await this.userModel.findById(id);
+    if (!user) {
       throw new NotFoundException('User not found');
     }
+
+    // 🔔 NOTIFICATION: Notify user about account deletion (if needed)
+    try {
+      await this.notificationService.createNotification({
+        recipient: (user as any)._id?.toString(),
+        title: 'Account Deleted',
+        message: 'Your account has been permanently deleted from our system.',
+        type: NotificationType.ACCOUNT_DELETED,
+        priority: NotificationPriority.HIGH,
+      });
+    } catch (notificationError) {
+      console.error(
+        'Failed to send account deletion notification:',
+        notificationError,
+      );
+    }
+
+    const result = await this.userModel.findByIdAndDelete(id);
     return result;
+  }
+
+  async getAdminUsers(): Promise<UserDocument[]> {
+    // FIX: role must use enum; filter by approved status (no isActive field in schema)
+    return this.userModel
+      .find({ role: Role.ADMIN, status: UserStatus.APPROVED })
+      .exec();
   }
 }

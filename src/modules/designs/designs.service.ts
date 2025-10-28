@@ -188,7 +188,7 @@ export class DesignsService {
     },
   ): Promise<Design> {
     const uploadedUrls: string[] = [];
-  
+
     try {
       // Validate base product exists (but don't validate color)
       const product = await this.productModel.findById(
@@ -197,7 +197,7 @@ export class DesignsService {
       if (!product) {
         throw new NotFoundException('Base product not found');
       }
-  
+
       // REMOVE color validation since design is not tied to a specific color
       // const colorId = new Types.ObjectId(createDesignDto.color);
       // const hasColor = product.variants.some((v) => v.color.equals(colorId));
@@ -206,18 +206,18 @@ export class DesignsService {
       //     'Selected color not available for this product',
       //   );
       // }
-  
+
       // Validate that front design is provided
       if (!files.frontImage?.[0]) {
         throw new BadRequestException('Front image is required');
       }
-  
+
       // Process front design files
       const frontImageUrl = await this.fileUploadService.handleUpload(
         files.frontImage[0],
       );
       uploadedUrls.push(frontImageUrl);
-  
+
       let frontElementUrl: string | undefined;
       if (files.frontElement?.[0]) {
         frontElementUrl = await this.fileUploadService.handleUpload(
@@ -225,17 +225,17 @@ export class DesignsService {
         );
         uploadedUrls.push(frontElementUrl);
       }
-  
+
       // Process back design files if provided
       let backImageUrl: string | undefined;
       let backElementUrl: string | undefined;
-  
+
       if (files.backImage?.[0]) {
         backImageUrl = await this.fileUploadService.handleUpload(
           files.backImage[0],
         );
         uploadedUrls.push(backImageUrl);
-  
+
         if (files.backElement?.[0]) {
           backElementUrl = await this.fileUploadService.handleUpload(
             files.backElement[0],
@@ -243,17 +243,17 @@ export class DesignsService {
           uploadedUrls.push(backElementUrl);
         }
       }
-  
+
       // Process left side design files if provided
       let leftImageUrl: string | undefined;
       let leftElementUrl: string | undefined;
-  
+
       if (files.leftImage?.[0]) {
         leftImageUrl = await this.fileUploadService.handleUpload(
           files.leftImage[0],
         );
         uploadedUrls.push(leftImageUrl);
-  
+
         if (files.leftElement?.[0]) {
           leftElementUrl = await this.fileUploadService.handleUpload(
             files.leftElement[0],
@@ -261,17 +261,17 @@ export class DesignsService {
           uploadedUrls.push(leftElementUrl);
         }
       }
-  
+
       // Process right side design files if provided
       let rightImageUrl: string | undefined;
       let rightElementUrl: string | undefined;
-  
+
       if (files.rightImage?.[0]) {
         rightImageUrl = await this.fileUploadService.handleUpload(
           files.rightImage[0],
         );
         uploadedUrls.push(rightImageUrl);
-  
+
         if (files.rightElement?.[0]) {
           rightElementUrl = await this.fileUploadService.handleUpload(
             files.rightElement[0],
@@ -279,7 +279,7 @@ export class DesignsService {
           uploadedUrls.push(rightElementUrl);
         }
       }
-  
+
       const designData: any = {
         ...createDesignDto,
         user: new Types.ObjectId(userId),
@@ -288,12 +288,12 @@ export class DesignsService {
         // REMOVE color assignment
         // color: colorId,
       };
-  
+
       // Only add front element if provided
       if (frontElementUrl) {
         designData.frontElement = frontElementUrl;
       }
-  
+
       // Only add back design if provided
       if (backImageUrl) {
         designData.backImage = backImageUrl;
@@ -301,7 +301,7 @@ export class DesignsService {
           designData.backElement = backElementUrl;
         }
       }
-  
+
       // Only add left side design if provided
       if (leftImageUrl) {
         designData.leftImage = leftImageUrl;
@@ -309,7 +309,7 @@ export class DesignsService {
           designData.leftElement = leftElementUrl;
         }
       }
-  
+
       // Only add right side design if provided
       if (rightImageUrl) {
         designData.rightImage = rightImageUrl;
@@ -317,7 +317,7 @@ export class DesignsService {
           designData.rightElement = rightElementUrl;
         }
       }
-  
+
       const createdDesign = new this.designModel(designData);
       return await createdDesign.save();
     } catch (error) {
@@ -402,10 +402,14 @@ export class DesignsService {
       const [data, total] = await Promise.all([
         this.designModel
           .find(filter)
-          .populate(
-            'baseProduct',
-            'productName price discountedPrice variants thumbnail',
-          )
+          .populate({
+            path: 'baseProduct',
+            select: 'productName price discountedPrice variants thumbnail',
+            populate: [
+              { path: 'variants.color', select: 'name hexValue' },
+              { path: 'variants.size', select: 'name' },
+            ],
+          })
           // .populate('color', 'name hexValue') // New: Populate color
           .sort({ createdAt: -1 })
           .skip(skip)
@@ -438,10 +442,14 @@ export class DesignsService {
     const design = await this.designModel
       .findOne(filter)
       .populate('user', 'firstName lastName email')
-      .populate(
-        'baseProduct',
-        'productName price discountedPrice variants thumbnail',
-      )
+      .populate({
+        path: 'baseProduct',
+        select: 'productName price discountedPrice variants thumbnail',
+        populate: [
+          { path: 'variants.color', select: 'name hexValue' },
+          { path: 'variants.size', select: 'name' },
+        ],
+      })
       // .populate('color', 'name hexValue') // New: Populate color
       .exec();
 
@@ -629,20 +637,20 @@ export class DesignsService {
       _id: new Types.ObjectId(id),
       user: new Types.ObjectId(userId),
     });
-  
+
     if (!design) {
       throw new NotFoundException('Design not found');
     }
-  
+
     const filesToDelete: string[] = [];
     const newlyUploadedUrls: string[] = [];
-  
+
     try {
       // REMOVE color validation since design is no longer tied to a color
       // if (updateDesignDto.color) {
       //   ... color validation code removed
       // }
-  
+
       // Process uploaded files if provided - THIS PART WAS MISSING
       if (files) {
         if (files.frontImage?.[0]) {
@@ -655,7 +663,7 @@ export class DesignsService {
           newlyUploadedUrls.push(newFrontImage);
           design.frontImage = newFrontImage;
         }
-  
+
         if (files.backImage?.[0]) {
           if (design.backImage) {
             filesToDelete.push(design.backImage);
@@ -666,7 +674,7 @@ export class DesignsService {
           newlyUploadedUrls.push(newBackImage);
           design.backImage = newBackImage;
         }
-  
+
         if (files.frontElement?.[0]) {
           if (design.frontElement) {
             filesToDelete.push(design.frontElement);
@@ -677,7 +685,7 @@ export class DesignsService {
           newlyUploadedUrls.push(newFrontElement);
           design.frontElement = newFrontElement;
         }
-  
+
         if (files.backElement?.[0]) {
           if (design.backElement) {
             filesToDelete.push(design.backElement);
@@ -688,7 +696,7 @@ export class DesignsService {
           newlyUploadedUrls.push(newBackElement);
           design.backElement = newBackElement;
         }
-  
+
         // Process left side files
         if (files.leftImage?.[0]) {
           if (design.leftImage) {
@@ -700,7 +708,7 @@ export class DesignsService {
           newlyUploadedUrls.push(newLeftImage);
           design.leftImage = newLeftImage;
         }
-  
+
         if (files.leftElement?.[0]) {
           if (design.leftElement) {
             filesToDelete.push(design.leftElement);
@@ -711,7 +719,7 @@ export class DesignsService {
           newlyUploadedUrls.push(newLeftElement);
           design.leftElement = newLeftElement;
         }
-  
+
         // Process right side files
         if (files.rightImage?.[0]) {
           if (design.rightImage) {
@@ -723,7 +731,7 @@ export class DesignsService {
           newlyUploadedUrls.push(newRightImage);
           design.rightImage = newRightImage;
         }
-  
+
         if (files.rightElement?.[0]) {
           if (design.rightElement) {
             filesToDelete.push(design.rightElement);
@@ -735,19 +743,19 @@ export class DesignsService {
           design.rightElement = newRightElement;
         }
       }
-  
+
       // Update other fields
       Object.keys(updateDesignDto).forEach((key) => {
         if (updateDesignDto[key] !== undefined) {
           design[key] = updateDesignDto[key];
         }
       });
-  
+
       const savedDesign = await design.save();
-  
+
       // Delete old files after successful update
       await this.cleanupFilesByUrls(filesToDelete);
-  
+
       return savedDesign;
     } catch (error) {
       // If update fails, clean up any newly uploaded files

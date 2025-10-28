@@ -11,15 +11,16 @@ import {
   HttpStatus,
   NotFoundException,
   BadRequestException,
+  Put,
 } from '@nestjs/common';
 import { CartService } from './cart.service';
 import { JwtAuthGuard } from 'src/common/guards/jwt.guard';
 import {
   AddRegularProductToCartDto,
-  UpdateCartItemDto,
   RemoveFromCartDto,
   AddDesignToCartDto,
 } from './dto/create-cart.dto';
+import { UpdateCartItemDto } from 'src/modules/cart/dto/update-cart.dto';
 
 @Controller('carts')
 @UseGuards(JwtAuthGuard)
@@ -49,7 +50,7 @@ export class CartController {
     }
   }
 
-  // ==================== ADD ITEMS ====================
+  // ==================== ADD REGULAR PRODUCT TO CART ====================
   @Post('regular')
   async addRegularProductToCart(
     @Body() addRegularProductToCartDto: AddRegularProductToCartDto,
@@ -62,6 +63,7 @@ export class CartController {
         userId,
         addRegularProductToCartDto,
       );
+      console.log('cart', cart);
       return {
         success: true,
         statusCode: HttpStatus.OK,
@@ -89,6 +91,7 @@ export class CartController {
     }
   }
 
+  // ==================== ADD DESIGN TO CART ====================
   @Post('design')
   async addDesignToCart(
     @Body() addDesignToCartDto: AddDesignToCartDto,
@@ -128,8 +131,39 @@ export class CartController {
     }
   }
 
-  // ==================== UPDATE ITEM ====================
-  @Patch('item/:itemId')
+  // ==================== GET ITEM DETAILS ====================
+  @Get('item/:itemId')
+  async getItemDetails(@Param('itemId') itemId: string, @Req() req) {
+    const userId = req.user.userId;
+
+    try {
+      const itemDetails = await this.cartService.getItemDetails(userId, itemId);
+      return {
+        success: true,
+        statusCode: HttpStatus.OK,
+        message: 'Item details fetched successfully',
+        data: itemDetails,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        return {
+          success: false,
+          statusCode: HttpStatus.NOT_FOUND,
+          message: error.message,
+          data: null,
+        };
+      }
+      return {
+        success: false,
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: error.message || 'Failed to fetch item details',
+        data: null,
+      };
+    }
+  }
+
+  // ==================== UPDATE CART ITEM ====================
+  @Put('item/:itemId')
   async updateCartItem(
     @Param('itemId') itemId: string,
     @Body() updateCartItemDto: UpdateCartItemDto,
@@ -167,7 +201,7 @@ export class CartController {
     }
   }
 
-  // ==================== REMOVE ITEM ====================
+  // ==================== REMOVE CART ITEM ====================
   @Delete('item')
   async removeFromCart(
     @Body() removeFromCartDto: RemoveFromCartDto,

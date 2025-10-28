@@ -1,281 +1,308 @@
+// src/modules/order/order.service.ts
 import {
   Injectable,
   NotFoundException,
-  InternalServerErrorException,
   BadRequestException,
+  InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Order, OrderDocument } from './schema/order.schema';
-import { CreateOrderDto, UpdateOrderStatusDto } from './dto/create-order.dto';
-import { CartService } from 'src/modules/cart/cart.service';
-import { PaymentService } from 'src/modules/payment/payment.service';
-import { AddressService } from 'src/modules/address/address.service';
-import { OrderStatus } from 'src/common/enum/order_status.enum';
-import { PaymentStatus } from 'src/common/enum/payment_status.enum';
-import { DesignsService } from 'src/modules/designs/designs.service';
 
-type CartDetailItem = {
-  _id: string;
-  product: {
-    _id: string;
-    productName: string;
-    brand: string;
-    price: number;
-    discountedPrice: number;
-    thumbnail: string;
-  };
-  design?: {
-    _id: string;
-    designName: string;
-    frontImage?: string;
-    backImage?: string;
-    leftImage?: string;
-    rightImage?: string;
-  } | null;
-  variant: { _id: string; color: any };
-  sizeQuantities: Array<{ size: string; sizeName: string; quantity: number }>;
-  price: number;
-  total: number;
-  displayImages: {
-    frontImage?: string;
-    backImage?: string;
-    leftImage?: string;
-    rightImage?: string;
-  };
-  isSelected: boolean;
-  color: string; // from your getCartWithDetails: item.colorName
-  isDesignItem: boolean;
-};
+import {
+  Order,
+  OrderDocument,
+  OrderStatus,
+  PaymentStatus,
+} from './schema/order.schema';
+import { Cart, CartDocument } from '../cart/schema/cart.schema';
+import { Product, ProductDocument } from '../products/schema/product.schema';
+import { Design, DesignDocument } from '../designs/schema/design.schema';
+
+import {
+  CreateOrderDto,
+  UpdateOrderStatusDto,
+  UpdatePaymentStatusDto,
+  UpdateOrderDto,
+} from './dto/create-order.dto';
+
+import {
+  Address,
+  AddressDocument,
+} from 'src/modules/address/schema/address.schema';
+
+import { NotificationPriority } from '../notifications/schema/notification.schema';
+
+import { NotificationService } from 'src/modules/notifications/notifications.service';
+import { NotificationType } from 'src/common/enum/notification_type.enum';
+import { CreateNotificationDto } from 'src/modules/notifications/dto/create-notification.dto';
 
 @Injectable()
 export class OrderService {
   private readonly logger = new Logger(OrderService.name);
 
-  // env-configurable pricing rules (fallback defaults used if env not set)
-  private readonly TAX_RATE = Number(process.env.TAX_RATE ?? 0); // e.g., 0.1 for 10%
-  private readonly SHIPPING_FLAT = Number(process.env.SHIPPING_FLAT ?? 0); // e.g., 499 for cents or 4.99 if using major units
-  private readonly FREE_SHIPPING_OVER = Number(
-    process.env.FREE_SHIPPING_OVER ?? 0,
-  );
-
   constructor(
-    @InjectModel(Order.name)
-    private readonly orderModel: Model<OrderDocument>,
-    private readonly paymentService: PaymentService,
-    private readonly cartService: CartService,
-    private readonly addressService: AddressService,
-    private readonly designService: DesignsService,
+    @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
+    @InjectModel(Cart.name) private readonly cartModel: Model<CartDocument>,
+    @InjectModel(Address.name)
+    private readonly addressModel: Model<AddressDocument>,
+    @InjectModel(Product.name)
+    private readonly productModel: Model<ProductDocument>,
+    @InjectModel(Design.name)
+    private readonly designModel: Model<DesignDocument>,
+    private readonly notificationService: NotificationService,
   ) {}
 
-  // ---------- helpers ----------
-  private round2(n: number): number {
-    return Math.round((n + Number.EPSILON) * 100) / 100;
-  }
-
-  private computeTotals(items: Array<{ lineTotal: number }>) {
-    const itemsTotal = this.round2(
-      items.reduce((s, it) => s + (it.lineTotal || 0), 0),
-    );
-
-    const shippingFee =
-      this.FREE_SHIPPING_OVER && itemsTotal >= this.FREE_SHIPPING_OVER
-        ? 0
-        : this.round2(this.SHIPPING_FLAT || 0);
-
-    const taxAmount = this.round2(itemsTotal * (this.TAX_RATE || 0));
-    const totalAmount = this.round2(itemsTotal + shippingFee + taxAmount);
-
-    return { itemsTotal, shippingFee, taxAmount, totalAmount };
-  }
-
-  private mapCartItemToOrderItem(item: CartDetailItem) {
-    // Prefer design images; fall back to variant images already in displayImages
-    const images = item.displayImages || {};
-    const designData = item.design
-      ? {
-          designName: item.design.designName,
-          frontImage: item.design.frontImage,
-          backImage: item.design.backImage,
-          leftImage: item.design.leftImage,
-          rightImage: item.design.rightImage,
-        }
-      : undefined;
-
-    return {
-      product: new Types.ObjectId(item.product._id),
-      design: item.design ? new Types.ObjectId(item.design._id) : undefined,
-      variant: new Types.ObjectId(item.variant._id),
-      sizeQuantities: item.sizeQuantities.map((sq) => ({
-        size: new Types.ObjectId(sq.size),
-        sizeName: sq.sizeName,
-        quantity: sq.quantity,
-      })),
-      price: item.price, // price per unit (discountedPrice from cart)
-      color: item.color, // color name from cart
-      frontImage: images.frontImage || '',
-      backImage: images.backImage,
-      leftImage: images.leftImage,
-      rightImage: images.rightImage,
-      designData,
-      hasDesign: !!item.isDesignItem,
-      productSnapshot: {
-        productName: item.product.productName,
-        brand: item.product.brand,
-        price: item.product.price,
-        discountedPrice: item.product.discountedPrice,
-        thumbnail: item.product.thumbnail,
-      },
-      // not persisted here: lineTotal, we compute totals separately
-      __lineTotal: item.total, // internal helper
-    };
-  }
-
-  private chooseCartItems(all: CartDetailItem[], selectedOnly?: boolean) {
-    if (selectedOnly) {
-      const sel = all.filter((i) => i.isSelected);
-      // If user asked selectedOnly but none selected, this is a user error.
-      if (sel.length === 0) {
-        throw new BadRequestException('No selected items in cart.');
-      }
-      return sel;
-    }
-    // If not selectedOnly, but some are selected, many shops prefer to
-    // order only selected. We’ll match the cart UX you’ve built:
-    const selected = all.filter((i) => i.isSelected);
-    return selected.length ? selected : all;
-  }
-
-  // ---------- service methods ----------
-
-  async create(userId: string, createOrderDto: CreateOrderDto) {
+  // ==================== CREATE ORDER ====================
+  async createOrder(
+    userId: string,
+    createOrderDto: CreateOrderDto,
+  ): Promise<OrderDocument> {
     const session = await this.orderModel.db.startSession();
     session.startTransaction();
 
     try {
-      // 1) Validate address belongs to the user
-      const address = await this.addressService.findOne(
-        userId,
-        createOrderDto.shippingAddress,
+      // Validate shipping address (inside the session)
+      const address = await this.addressModel.findOne(
+        {
+          _id: new Types.ObjectId(createOrderDto.shippingAddress),
+          user: new Types.ObjectId(userId),
+          isActive: true,
+        },
+        null,
+        { session },
       );
 
-      const addressSnapshot = {
-        fullName: address.fullName,
-        street: address.street,
-        city: address.city,
-        state: address.state,
-        zipCode: address.zipCode,
-        country: address.country,
-        phone: address.phone,
-      };
-
-      // 2) Load cart details and decide which items to order
-      const cartDetails = await this.cartService.getCartWithDetails(userId);
-      const cartItems: CartDetailItem[] = cartDetails.items as any;
-
-      if (!cartItems.length) {
-        throw new BadRequestException('Cart is empty.');
+      if (!address) {
+        throw new NotFoundException('Shipping address not found');
       }
 
-      const useSelectedOnly =
-        createOrderDto.orderSelectedOnly === undefined
-          ? true
-          : !!createOrderDto.orderSelectedOnly;
+      // Calculate order totals and validate items
+      let itemsPrice = 0;
+      const orderItems: Array<{
+        product: Types.ObjectId;
+        design?: Types.ObjectId;
+        variantQuantities: Array<{
+          variant: Types.ObjectId;
+          sizeQuantities: Array<{
+            size: Types.ObjectId;
+            quantity: number;
+            price: number;
+          }>;
+        }>;
+        price: number;
+        designData?: any;
+        isDesignItem: boolean;
+        discount: number;
+      }> = [];
 
-      const itemsChosen = this.chooseCartItems(cartItems, useSelectedOnly);
-
-      // 3) Map to order items and compute totals safely on server
-      const mapped = itemsChosen.map((it) => this.mapCartItemToOrderItem(it));
-
-      const itemCount = mapped.length;
-      const totalQuantity = itemsChosen.reduce(
-        (sum, it) =>
-          sum +
-          it.sizeQuantities.reduce((s, sq) => s + Number(sq.quantity || 0), 0),
-        0,
-      );
-      const designItemCount = itemsChosen.filter((i) => i.isDesignItem).length;
-
-      const { itemsTotal, shippingFee, taxAmount, totalAmount } =
-        this.computeTotals(
-          mapped.map((it: any) => ({ lineTotal: it.__lineTotal || 0 })),
+      for (const itemDto of createOrderDto.items) {
+        // Load product within session
+        const product = await this.productModel.findById(
+          itemDto.product,
+          null,
+          { session },
         );
+        if (!product) {
+          throw new NotFoundException(`Product ${itemDto.product} not found`);
+        }
 
-      // 4) Create payment intent
-      const paymentIntent = await this.paymentService.createPaymentIntent(
-        totalAmount,
-        {
-          userId,
-          orderType: 'order',
-          itemCount: String(itemCount),
-          totalQuantity: String(totalQuantity),
-          designItems: String(designItemCount),
-        },
-      );
+        // Validate design if provided (within session)
+        if (itemDto.design) {
+          const design = await this.designModel.findOne(
+            {
+              _id: new Types.ObjectId(itemDto.design),
+              user: new Types.ObjectId(userId),
+              isActive: true,
+            },
+            null,
+            { session },
+          );
+          if (!design) {
+            throw new NotFoundException(`Design ${itemDto.design} not found`);
+          }
+        }
 
-      // 5) Persist order (strip internal helper field)
-      const sanitizedItems = mapped.map((it: any) => {
-        const { __lineTotal, ...rest } = it;
-        return rest;
-      });
+        // Calculate item total and validate variants
+        let itemTotal = 0;
+        const variantQuantities: Array<{
+          variant: Types.ObjectId;
+          sizeQuantities: Array<{
+            size: Types.ObjectId;
+            quantity: number;
+            price: number;
+          }>;
+        }> = [];
 
+        for (const variantDto of itemDto.variantQuantities) {
+          const productVariant = (product.variants as any)?.find(
+            (v: any) => v._id?.toString() === variantDto.variant,
+          );
+
+          if (!productVariant) {
+            throw new NotFoundException(
+              `Variant ${variantDto.variant} not found in product`,
+            );
+          }
+
+          const sizeQuantities: Array<{
+            size: Types.ObjectId;
+            quantity: number;
+            price: number;
+          }> = [];
+
+          for (const sizeQty of variantDto.sizeQuantities) {
+            // Validate size exists in variant
+            const sizeExists = productVariant.size?.some(
+              (s: any) => s._id?.toString() === sizeQty.size.toString(),
+            );
+
+            if (!sizeExists) {
+              throw new BadRequestException(
+                `Size ${sizeQty.size} not available for variant ${variantDto.variant}`,
+              );
+            }
+
+            // Compute price; fallback to product.price if discountedPrice missing
+            const fallbackPrice =
+              (product as any).discountedPrice ?? (product as any).price ?? 0;
+
+            const itemPrice = sizeQty.price ?? fallbackPrice;
+            const itemSubtotal = itemPrice * sizeQty.quantity;
+            itemTotal += itemSubtotal;
+
+            sizeQuantities.push({
+              size: new Types.ObjectId(sizeQty.size),
+              quantity: sizeQty.quantity,
+              price: itemPrice,
+            });
+          }
+
+          variantQuantities.push({
+            variant: new Types.ObjectId(variantDto.variant),
+            sizeQuantities,
+          });
+        }
+
+        itemsPrice += itemTotal;
+
+        orderItems.push({
+          product: new Types.ObjectId(itemDto.product),
+          design: itemDto.design
+            ? new Types.ObjectId(itemDto.design)
+            : undefined,
+          variantQuantities,
+          price: itemDto.price,
+          designData: itemDto.designData,
+          isDesignItem: itemDto.isDesignItem || false,
+          discount: itemDto.discount || 0,
+        });
+      }
+
+      // Totals (example logic)
+      const taxPrice = itemsPrice * 0.1; // 10% tax example
+      const shippingPrice = itemsPrice > 100 ? 0 : 10; // Free shipping over $100
+      const totalPrice = itemsPrice + taxPrice + shippingPrice;
+
+      // Create order (in session)
       const order = new this.orderModel({
         user: new Types.ObjectId(userId),
+        items: orderItems,
         shippingAddress: new Types.ObjectId(createOrderDto.shippingAddress),
-        items: sanitizedItems,
-        itemsTotal,
-        shippingFee,
-        taxAmount,
-        totalAmount,
         paymentMethod: createOrderDto.paymentMethod,
-        stripePaymentIntentId: paymentIntent.id,
-        itemCount,
-        totalQuantity,
-        designItemCount,
-        shippingAddressSnapshot: addressSnapshot,
-        status: OrderStatus.PENDING,
-        paymentStatus: PaymentStatus.PENDING,
+        itemsPrice,
+        taxPrice,
+        shippingPrice,
+        totalPrice,
+        trackingNumber: createOrderDto.trackingNumber,
+        shippingCarrier: createOrderDto.shippingCarrier,
       });
 
       const savedOrder = await order.save({ session });
 
-      // 6) Clear cart after order creation
-      try {
-        await this.cartService.clearCart(userId);
-        this.logger.log(`Cart cleared for user ${userId} after order creation`);
-      } catch (clearErr: any) {
-        this.logger.error(
-          `Failed to clear cart for user ${userId}: ${clearErr.message}`,
-          clearErr.stack,
-        );
-        // Not fatal to the order — do not throw
-      }
+      // Clear user's cart after successful order
+      await this.cartModel.updateOne(
+        { user: new Types.ObjectId(userId), isActive: true },
+        { $set: { items: [] } },
+        { session },
+      );
 
       await session.commitTransaction();
 
-      this.logger.log(
-        `Order created: ${savedOrder._id} (user ${userId}) — items: ${itemCount}, qty: ${totalQuantity}, designItems: ${designItemCount}`,
-      );
+      // Re-fetch with populations as a Document (no lean)
+      const populatedOrder = await this.orderModel
+        .findById(savedOrder._id)
+        .populate('user', 'name email')
+        .populate('shippingAddress')
+        .populate({
+          path: 'items.product',
+          select: 'name images price',
+        })
+        .populate({
+          path: 'items.design',
+          select: 'name previewImage',
+        })
+        .exec();
 
-      return {
-        order: savedOrder,
-        clientSecret: paymentIntent.client_secret,
-      };
+      if (!populatedOrder) {
+        throw new NotFoundException('Order not found');
+      }
+
+      // Stringify saved order id safely
+      const orderIdStr = (savedOrder._id as Types.ObjectId).toString();
+
+      // 🔔 NOTIFICATION: Notify admins about new order
+      try {
+        const adminUsers = await this.getAdminUsers();
+        const adminIds = adminUsers.map((admin) =>
+          (admin as any)?._id?.toString(),
+        );
+
+        await this.notificationService.notifyOrderCreated({
+          orderId: orderIdStr,
+          customerId: userId,
+          customerName: (populatedOrder.user as any)?.name || 'Customer',
+          totalAmount: totalPrice,
+          adminIds: adminIds.filter(Boolean) as string[],
+        });
+      } catch (notificationError) {
+        this.logger.error(
+          'Failed to send order creation notification:',
+          notificationError,
+        );
+      }
+
+      // 🔔 NOTIFICATION: Notify customer about order confirmation
+      try {
+        await this.notificationService.createNotification({
+          recipient: userId,
+          title: 'Order Confirmed',
+          message: `Your order #${orderIdStr} has been confirmed and is being processed.`,
+          type: NotificationType.ORDER_CREATED,
+          priority: NotificationPriority.MEDIUM,
+          metadata: {
+            orderId: orderIdStr,
+            totalAmount: totalPrice,
+            itemsCount: orderItems.length,
+          },
+          // Pass string; NotificationService converts to ObjectId
+          relatedId: orderIdStr,
+          relatedModel: 'Order',
+        });
+      } catch (notificationError) {
+        this.logger.error(
+          'Failed to send customer order notification:',
+          notificationError,
+        );
+      }
+
+      return populatedOrder;
     } catch (error) {
       await session.abortTransaction();
       this.logger.error(
-        `Failed to create order for user ${userId}: ${error.message}`,
-        error.stack,
+        `Failed to create order: ${error.message}`,
+        (error as any)?.stack,
       );
-
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      ) {
-        throw error;
-      }
-
       throw new InternalServerErrorException(
         `Failed to create order: ${error.message}`,
       );
@@ -284,553 +311,532 @@ export class OrderService {
     }
   }
 
-  async findAll(userId: string, page = 1, limit = 10, status?: OrderStatus) {
-    try {
-      const skip = (page - 1) * limit;
-      const query: any = { user: new Types.ObjectId(userId) };
-
-      if (status) query.status = status;
-
-      const [orders, total] = await Promise.all([
-        this.orderModel
-          .find(query)
-          .populate('shippingAddress')
-          .populate({
-            path: 'items.product',
-            select: 'productName brand thumbnail',
-          })
-          .populate({
-            path: 'items.design',
-            select: 'designName frontImage',
-          })
-          .sort({ createdAt: -1 })
-          .skip(skip)
-          .limit(limit)
-          .exec(),
-        this.orderModel.countDocuments(query),
-      ]);
-
-      return {
-        data: orders,
-        meta: {
-          total,
-          page: Number(page),
-          limit: Number(limit),
-          totalPages: Math.ceil(total / limit),
-        },
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch orders for user ${userId}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException('Failed to fetch orders');
-    }
-  }
-
-  async findOne(userId: string, id: string) {
-    try {
-      const order = await this.orderModel
-        .findOne({
-          _id: new Types.ObjectId(id),
-          user: new Types.ObjectId(userId),
-        })
-        .populate('shippingAddress')
-        .populate({
-          path: 'items.product',
-          select: 'productName brand thumbnail',
-        })
-        .populate({
-          path: 'items.design',
-          select: 'designName frontImage',
-        })
-        .exec();
-
-      if (!order) throw new NotFoundException('Order not found');
-
-      return order;
-    } catch (error) {
-      if (error instanceof NotFoundException) throw error;
-
-      this.logger.error(
-        `Failed to fetch order ${id} for user ${userId}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException('Failed to fetch order');
-    }
-  }
-
-  async findOneAdmin(id: string) {
-    try {
-      const order = await this.orderModel
-        .findById(new Types.ObjectId(id))
-        .populate('shippingAddress')
-        .populate({
-          path: 'items.product',
-          select: 'productName brand thumbnail price discountedPrice variants',
-        })
-        .populate({
-          path: 'items.design',
-          select:
-            'designName frontImage backImage leftImage rightImage frontElement backElement leftElement rightElement',
-        })
-        .populate({
-          path: 'user',
-          select: 'firstName lastName email phone',
-        })
-        .exec();
-
-      if (!order) throw new NotFoundException('Order not found');
-
-      return order;
-    } catch (error) {
-      if (error instanceof NotFoundException) throw error;
-
-      this.logger.error(
-        `Failed to fetch order ${id} for admin: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException('Failed to fetch order');
-    }
-  }
-
-  async getOrderDesignDetails(id: string) {
-    try {
-      const order = await this.orderModel
-        .findById(new Types.ObjectId(id))
-        .populate('shippingAddress')
-        .populate({
-          path: 'items.product',
-          select: 'productName brand thumbnail',
-        })
-        .populate({
-          path: 'items.design',
-          select:
-            'designName frontImage backImage leftImage rightImage frontElement backElement leftElement rightElement designPreferences',
-        })
-        .populate({
-          path: 'user',
-          select: 'firstName lastName email phone',
-        })
-        .exec();
-
-      if (!order) throw new NotFoundException('Order not found');
-
-      const enhancedItems = await Promise.all(
-        order.items.map(async (item: any) => {
-          if (item.design) {
-            const designDetails = await this.designService.findOne(
-              item.design._id.toString(),
-            );
-
-            return {
-              ...item.toObject(),
-              design: designDetails,
-              hasDesign: true,
-              designImages: {
-                front: item.designData?.frontImage || item.design.frontImage,
-                back: item.designData?.backImage || item.design.backImage,
-                left: item.designData?.leftImage || item.design.leftImage,
-                right: item.designData?.rightImage || item.design.rightImage,
-              },
-              designElements: {
-                front:
-                  item.designData?.frontElement || item.design.frontElement,
-                back: item.designData?.backElement || item.design.backElement,
-                left: item.designData?.leftElement || item.design.leftElement,
-                right:
-                  item.designData?.rightElement || item.design.rightElement,
-              },
-            };
-          }
-
-          return {
-            ...item.toObject(),
-            hasDesign: false,
-            designImages: null,
-            designElements: null,
-          };
-        }),
-      );
-
-      return {
-        ...order.toObject(),
-        items: enhancedItems,
-        designSummary: {
-          totalItems: order.items.length,
-          designItems: order.items.filter((it) => it.hasDesign).length,
-          regularItems: order.items.filter((it) => !it.hasDesign).length,
-        },
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) throw error;
-
-      this.logger.error(
-        `Failed to fetch order design details ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        'Failed to fetch order design details',
-      );
-    }
-  }
-
-  async findOrdersByStatus(
+  // ==================== CREATE ORDER FROM CART ====================
+  async createOrderFromCart(
     userId: string,
-    status: OrderStatus,
-    page = 1,
-    limit = 10,
-  ) {
-    try {
-      const skip = (page - 1) * limit;
+    createOrderDto: CreateOrderDto,
+  ): Promise<OrderDocument> {
+    // Get user's cart with selected items
+    const cart = await this.cartModel
+      .findOne({ user: new Types.ObjectId(userId), isActive: true })
+      .populate('items.product')
+      .populate('items.design')
+      .exec();
 
-      const [orders, total] = await Promise.all([
-        this.orderModel
-          .find({
-            user: new Types.ObjectId(userId),
-            status,
-          })
-          .populate('shippingAddress')
-          .populate({
-            path: 'items.product',
-            select: 'productName brand thumbnail',
-          })
-          .populate({
-            path: 'items.design',
-            select: 'designName frontImage',
-          })
-          .sort({ createdAt: -1 })
-          .skip(skip)
-          .limit(limit)
-          .exec(),
-        this.orderModel.countDocuments({
-          user: new Types.ObjectId(userId),
-          status,
-        }),
-      ]);
-
-      return {
-        data: orders,
-        meta: {
-          total,
-          page: Number(page),
-          limit: Number(limit),
-          totalPages: Math.ceil(total / limit),
-        },
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch orders by status for user ${userId}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        'Failed to fetch orders by status',
-      );
+    if (!cart || cart.items.length === 0) {
+      throw new BadRequestException('Cart is empty');
     }
+
+    // Filter only selected items
+    const selectedItems = (cart.items as any[]).filter(
+      (item: any) => item.isSelected,
+    );
+    if (selectedItems.length === 0) {
+      throw new BadRequestException('No items selected in cart');
+    }
+
+    // Convert cart items to order items
+    const orderItems = selectedItems.map((item: any) => ({
+      product: item.product._id,
+      design: item.design?._id,
+      variantQuantities: item.variantQuantities.map((vq: any) => ({
+        variant: vq.variant,
+        sizeQuantities: vq.sizeQuantities.map((sq: any) => ({
+          size: sq.size,
+          quantity: sq.quantity,
+          price: item.price,
+        })),
+      })),
+      price: item.price,
+      designData: item.designData,
+      isDesignItem: item.isDesignItem,
+      discount: 0, // Apply your discount logic here if needed
+    }));
+
+    const createOrderDtoWithItems: CreateOrderDto = {
+      ...createOrderDto,
+      items: orderItems as any,
+    };
+
+    return this.createOrder(userId, createOrderDtoWithItems);
   }
 
-  async findAllAdmin(
-    page = 1,
-    limit = 10,
-    status?: OrderStatus,
-    paymentStatus?: PaymentStatus,
-    hasDesign?: boolean,
-  ) {
-    try {
-      const skip = (page - 1) * limit;
-      const query: any = {};
+  // ==================== GET ORDERS ====================
+  async getOrders(userId: string, page: number = 1, limit: number = 10) {
+    const skip = (page - 1) * limit;
 
-      if (status) query.status = status;
-      if (paymentStatus) query.paymentStatus = paymentStatus;
+    const [orders, total] = await Promise.all([
+      this.orderModel
+        .find({ user: new Types.ObjectId(userId), isActive: true })
+        .populate('shippingAddress')
+        .populate('items.product', 'productName brand thumbnail')
+        .populate('items.design', 'designName')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.orderModel.countDocuments({
+        user: new Types.ObjectId(userId),
+        isActive: true,
+      }),
+    ]);
 
-      if (hasDesign !== undefined) {
-        query.designItemCount = hasDesign ? { $gt: 0 } : 0;
-      }
-
-      const [orders, total] = await Promise.all([
-        this.orderModel
-          .find(query)
-          .populate('shippingAddress')
-          .populate({
-            path: 'items.product',
-            select: 'productName brand thumbnail',
-          })
-          .populate({
-            path: 'items.design',
-            select: 'designName frontImage',
-          })
-          .populate({
-            path: 'user',
-            select: 'firstName lastName email',
-          })
-          .sort({ createdAt: -1 })
-          .skip(skip)
-          .limit(limit)
-          .exec(),
-        this.orderModel.countDocuments(query),
-      ]);
-
-      return {
-        data: orders,
-        meta: {
-          total,
-          page: Number(page),
-          limit: Number(limit),
-          totalPages: Math.ceil(total / limit),
-        },
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch orders for admin: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException('Failed to fetch orders');
-    }
+    return {
+      orders,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalOrders: total,
+        ordersPerPage: limit,
+      },
+    };
   }
 
-  async findOrdersWithDesigns(page = 1, limit = 10) {
-    try {
-      const skip = (page - 1) * limit;
+  // ==================== GET ORDER BY ID ====================
+  async getOrderById(userId: string, orderId: string): Promise<OrderDocument> {
+    const order = await this.orderModel
+      .findOne({
+        _id: new Types.ObjectId(orderId),
+        user: new Types.ObjectId(userId),
+        isActive: true,
+      })
+      .populate('user', 'firstName lastName email phone')
+      .populate('shippingAddress')
+      .populate(
+        'items.product',
+        'productName brand thumbnail price discountedPrice variants',
+      )
+      .populate(
+        'items.design',
+        'designName frontImage backImage leftImage rightImage',
+      )
+      .populate({
+        path: 'items.variantQuantities.variant',
+        populate: { path: 'color', select: 'name hexValue' },
+      })
+      .populate('items.variantQuantities.sizeQuantities.size', 'name')
+      .exec();
 
-      const [orders, total] = await Promise.all([
-        this.orderModel
-          .find({ designItemCount: { $gt: 0 } })
-          .populate('shippingAddress')
-          .populate({
-            path: 'items.product',
-            select: 'productName brand thumbnail',
-          })
-          .populate({
-            path: 'items.design',
-            select: 'designName frontImage backImage leftImage rightImage',
-          })
-          .populate({
-            path: 'user',
-            select: 'firstName lastName email',
-          })
-          .sort({ createdAt: -1 })
-          .skip(skip)
-          .limit(limit)
-          .exec(),
-        this.orderModel.countDocuments({ designItemCount: { $gt: 0 } }),
-      ]);
-
-      return {
-        data: orders,
-        meta: {
-          total,
-          page: Number(page),
-          limit: Number(limit),
-          totalPages: Math.ceil(total / limit),
-        },
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch orders with designs: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        'Failed to fetch orders with designs',
-      );
+    if (!order) {
+      throw new NotFoundException('Order not found');
     }
+
+    return order;
   }
 
-  async confirmPayment(paymentIntentId: string) {
-    const session = await this.orderModel.db.startSession();
-    session.startTransaction();
-
-    try {
-      const order = await this.orderModel.findOne({
-        stripePaymentIntentId: paymentIntentId,
-      });
-
-      if (!order) throw new NotFoundException('Order not found');
-
-      const payment = await this.paymentService.confirmPayment(paymentIntentId);
-
-      if (payment.status === 'succeeded') {
-        order.paymentStatus = PaymentStatus.PAID;
-        // Only auto-advance if it was still pending (idempotency safety)
-        if (order.status === OrderStatus.PENDING) {
-          order.status = OrderStatus.CONFIRMED;
-        }
-        await order.save({ session });
-
-        await session.commitTransaction();
-        this.logger.log(`Payment confirmed for order ${order._id}`);
-
-        return { success: true, order };
-      } else {
-        order.paymentStatus = PaymentStatus.FAILED;
-        order.status = OrderStatus.CANCELLED;
-        await order.save({ session });
-
-        await session.commitTransaction();
-        this.logger.warn(`Payment failed for order ${order._id}`);
-
-        return { success: false, order };
-      }
-    } catch (error) {
-      await session.abortTransaction();
-      this.logger.error(
-        `Failed to confirm payment for intent ${paymentIntentId}: ${error.message}`,
-        error.stack,
-      );
-      throw error;
-    } finally {
-      session.endSession();
-    }
-  }
-
-  async handleFailedPayment(paymentIntentId: string) {
-    try {
-      const order = await this.orderModel.findOne({
-        stripePaymentIntentId: paymentIntentId,
-      });
-
-      if (order) {
-        order.paymentStatus = PaymentStatus.FAILED;
-        order.status = OrderStatus.CANCELLED;
-        await order.save();
-
-        this.logger.log(`Order ${order._id} cancelled due to failed payment`);
-      }
-    } catch (error) {
-      this.logger.error(
-        `Failed to handle failed payment for intent ${paymentIntentId}: ${error.message}`,
-        error.stack,
-      );
-    }
-  }
-
-  async updateOrderStatusAdmin(
-    id: string,
+  // ==================== UPDATE ORDER STATUS ====================
+  async updateOrderStatus(
+    userId: string,
+    orderId: string,
     updateOrderStatusDto: UpdateOrderStatusDto,
-  ) {
+  ): Promise<OrderDocument> {
+    const order = await this.orderModel.findOne({
+      _id: new Types.ObjectId(orderId),
+      user: new Types.ObjectId(userId),
+      isActive: true,
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const oldStatus = order.status;
+    order.status = updateOrderStatusDto.status;
+
+    // Update deliveredAt if status is delivered
+    if (updateOrderStatusDto.status === OrderStatus.DELIVERED) {
+      order.isDelivered = true;
+      order.deliveredAt = new Date();
+    }
+
+    const updatedOrder = await order.save();
+
+    // 🔔 NOTIFICATION: Notify customer about order status update
     try {
-      const order = await this.orderModel.findById(id);
-      if (!order) throw new NotFoundException('Order not found');
+      await this.notificationService.createNotification({
+        recipient: userId,
+        title: `Order Status Updated`,
+        message: `Your order #${orderId} status has been updated from ${oldStatus} to ${updateOrderStatusDto.status}.`,
+        type: NotificationType.ORDER_UPDATED,
+        priority: NotificationPriority.MEDIUM,
+        metadata: {
+          orderId: orderId,
+          oldStatus: oldStatus,
+          newStatus: updateOrderStatusDto.status,
+        },
+        relatedId: new Types.ObjectId(orderId),
+        relatedModel: 'Order',
+      });
+    } catch (notificationError) {
+      this.logger.error(
+        'Failed to send order status update notification:',
+        notificationError,
+      );
+    }
 
-      order.status = updateOrderStatusDto.status;
+    return updatedOrder;
+  }
 
-      if (updateOrderStatusDto.trackingNumber) {
-        order.trackingNumber = updateOrderStatusDto.trackingNumber;
-      }
-      if (updateOrderStatusDto.estimatedDelivery) {
-        order.estimatedDelivery = new Date(
-          updateOrderStatusDto.estimatedDelivery,
+  // ==================== UPDATE PAYMENT STATUS ====================
+  async updatePaymentStatus(
+    userId: string,
+    orderId: string,
+    updatePaymentStatusDto: UpdatePaymentStatusDto,
+  ): Promise<OrderDocument> {
+    const order = await this.orderModel.findOne({
+      _id: new Types.ObjectId(orderId),
+      user: new Types.ObjectId(userId),
+      isActive: true,
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const oldPaymentStatus = order.paymentStatus;
+    order.paymentStatus = updatePaymentStatusDto.paymentStatus;
+    order.paymentResult = updatePaymentStatusDto.paymentResult;
+
+    // Update paidAt if payment is successful
+    if (updatePaymentStatusDto.paymentStatus === PaymentStatus.PAID) {
+      order.isPaid = true;
+      order.paidAt = new Date();
+
+      // 🔔 NOTIFICATION: Notify admins about successful payment
+      try {
+        const adminUsers = await this.getAdminUsers();
+        const adminIds = adminUsers.map((admin) =>
+          (admin as any)?._id?.toString(),
+        );
+
+        await this.notificationService.notifyPaymentReceived({
+          orderId: orderId,
+          customerId: userId,
+          amount: order.totalPrice,
+          adminIds: adminIds.filter(Boolean) as string[],
+        });
+      } catch (notificationError) {
+        this.logger.error(
+          'Failed to send payment notification:',
+          notificationError,
         );
       }
 
-      await order.save();
-      this.logger.log(
-        `Order ${id} status updated to ${updateOrderStatusDto.status} by admin`,
-      );
-      return order;
-    } catch (error) {
-      if (error instanceof NotFoundException) throw error;
-
-      this.logger.error(
-        `Failed to update order status for order ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException('Failed to update order status');
+      // 🔔 NOTIFICATION: Notify customer about successful payment
+      try {
+        await this.notificationService.createNotification({
+          recipient: userId,
+          title: 'Payment Successful',
+          message: `Your payment of $${order.totalPrice} for order #${orderId} has been processed successfully.`,
+          type: NotificationType.PAYMENT_RECEIVED,
+          priority: NotificationPriority.HIGH,
+          metadata: {
+            orderId: orderId,
+            amount: order.totalPrice,
+            paymentMethod: order.paymentMethod,
+          },
+          relatedId: new Types.ObjectId(orderId),
+          relatedModel: 'Order',
+        });
+      } catch (notificationError) {
+        this.logger.error(
+          'Failed to send customer payment notification:',
+          notificationError,
+        );
+      }
     }
+
+    // 🔔 NOTIFICATION: Notify about payment status change
+    try {
+      await this.notificationService.createNotification({
+        recipient: userId,
+        title: 'Payment Status Updated',
+        message: `Payment status for order #${orderId} has been updated from ${oldPaymentStatus} to ${updatePaymentStatusDto.paymentStatus}.`,
+        type: NotificationType.ORDER_UPDATED,
+        priority: NotificationPriority.MEDIUM,
+        metadata: {
+          orderId: orderId,
+          oldPaymentStatus: oldPaymentStatus,
+          newPaymentStatus: updatePaymentStatusDto.paymentStatus,
+        },
+        relatedId: new Types.ObjectId(orderId),
+        relatedModel: 'Order',
+      });
+    } catch (notificationError) {
+      this.logger.error(
+        'Failed to send payment status update notification:',
+        notificationError,
+      );
+    }
+
+    return await order.save();
   }
 
-  async updateTrackingInfo(
-    id: string,
-    trackingNumber: string,
-    estimatedDelivery: string,
-  ) {
+  // ==================== CANCEL ORDER ====================
+  async cancelOrder(userId: string, orderId: string): Promise<OrderDocument> {
+    const order = await this.orderModel.findOne({
+      _id: new Types.ObjectId(orderId),
+      user: new Types.ObjectId(userId),
+      isActive: true,
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Only allow cancellation for pending or confirmed orders
+    if (![OrderStatus.PENDING, OrderStatus.CONFIRMED].includes(order.status)) {
+      throw new BadRequestException(
+        `Cannot cancel order with status: ${order.status}`,
+      );
+    }
+
+    order.status = OrderStatus.CANCELLED;
+    order.paymentStatus = PaymentStatus.REFUNDED;
+
+    const cancelledOrder = await order.save();
+
+    // 🔔 NOTIFICATION: Notify admins about order cancellation
     try {
-      const order = await this.orderModel.findById(id);
-      if (!order) throw new NotFoundException('Order not found');
+      const adminUsers = await this.getAdminUsers();
+      const adminIds = adminUsers.map((admin) =>
+        (admin as any)?._id?.toString(),
+      );
 
-      order.trackingNumber = trackingNumber;
-      order.estimatedDelivery = new Date(estimatedDelivery);
+      for (const adminId of adminIds.filter(Boolean) as string[]) {
+        await this.notificationService.createNotification({
+          recipient: adminId,
+          title: 'Order Cancelled',
+          message: `Order #${orderId} has been cancelled by the customer.`,
+          type: NotificationType.ORDER_CANCELLED,
+          priority: NotificationPriority.HIGH,
+          metadata: {
+            orderId: orderId,
+            customerId: userId,
+            totalAmount: order.totalPrice,
+          },
+          relatedId: new Types.ObjectId(orderId),
+          relatedModel: 'Order',
+        });
+      }
+    } catch (notificationError) {
+      this.logger.error(
+        'Failed to send order cancellation notification to admins:',
+        notificationError,
+      );
+    }
 
-      if (order.status === OrderStatus.CONFIRMED) {
-        order.status = OrderStatus.PROCESSING;
+    // 🔔 NOTIFICATION: Notify customer about order cancellation
+    try {
+      await this.notificationService.createNotification({
+        recipient: userId,
+        title: 'Order Cancelled',
+        message: `Your order #${orderId} has been cancelled successfully.`,
+        type: NotificationType.ORDER_CANCELLED,
+        priority: NotificationPriority.MEDIUM,
+        metadata: {
+          orderId: orderId,
+          refundAmount: order.totalPrice,
+        },
+        relatedId: new Types.ObjectId(orderId),
+        relatedModel: 'Order',
+      });
+    } catch (notificationError) {
+      this.logger.error(
+        'Failed to send order cancellation notification to customer:',
+        notificationError,
+      );
+    }
+
+    return cancelledOrder;
+  }
+
+  // ==================== ADMIN METHODS ====================
+  async getAllOrders(page: number = 1, limit: number = 10, filters: any = {}) {
+    const skip = (page - 1) * limit;
+    const query: any = { isActive: true };
+
+    // Apply filters
+    if (filters.status) query.status = filters.status;
+    if (filters.paymentStatus) query.paymentStatus = filters.paymentStatus;
+    if (filters.paymentMethod) query.paymentMethod = filters.paymentMethod;
+
+    const [orders, total] = await Promise.all([
+      this.orderModel
+        .find(query)
+        .populate('user', 'firstName lastName email')
+        .populate('shippingAddress')
+        .populate('items.product', 'productName brand')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.orderModel.countDocuments(query),
+    ]);
+
+    return {
+      orders,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        totalOrders: total,
+        ordersPerPage: limit,
+      },
+    };
+  }
+
+  async adminUpdateOrder(
+    orderId: string,
+    updateOrderDto: UpdateOrderDto,
+  ): Promise<OrderDocument> {
+    const order = await this.orderModel
+      .findById(orderId)
+      .populate('user', 'firstName lastName email')
+      .populate('shippingAddress')
+      .populate('items.product', 'productName brand')
+      .exec();
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const oldStatus = order.status;
+    const oldPaymentStatus = order.paymentStatus;
+
+    if (updateOrderDto.status) {
+      order.status = updateOrderDto.status;
+
+      // Update timestamps based on status
+      if (updateOrderDto.status === OrderStatus.DELIVERED) {
+        order.isDelivered = true;
+        order.deliveredAt = new Date();
+      }
+    }
+
+    if (updateOrderDto.paymentStatus) {
+      order.paymentStatus = updateOrderDto.paymentStatus;
+
+      if (updateOrderDto.paymentStatus === PaymentStatus.PAID) {
+        order.isPaid = true;
+        order.paidAt = new Date();
+      }
+    }
+
+    if (updateOrderDto.trackingNumber) {
+      order.trackingNumber = updateOrderDto.trackingNumber;
+    }
+
+    if (updateOrderDto.shippingCarrier) {
+      order.shippingCarrier = updateOrderDto.shippingCarrier;
+    }
+
+    if (updateOrderDto.paymentResult) {
+      order.paymentResult = updateOrderDto.paymentResult;
+    }
+
+    const updatedOrder = await order.save();
+
+    // 🔔 Type the array to avoid never[]
+    const notifications: CreateNotificationDto[] = [];
+
+    try {
+      if (updateOrderDto.status && updateOrderDto.status !== oldStatus) {
+        notifications.push({
+          recipient: (order.user as any)?._id?.toString(),
+          title: 'Order Status Updated',
+          message: `Your order #${orderId} status has been updated to ${updateOrderDto.status}.`,
+          type: NotificationType.ORDER_UPDATED,
+          priority: NotificationPriority.MEDIUM,
+          metadata: {
+            orderId: orderId,
+            oldStatus: oldStatus,
+            newStatus: updateOrderDto.status,
+            updatedBy: 'admin',
+          },
+          relatedId: new Types.ObjectId(orderId),
+          relatedModel: 'Order',
+        });
       }
 
-      await order.save();
-      this.logger.log(`Tracking info updated for order ${id}`);
-      return order;
-    } catch (error) {
-      if (error instanceof NotFoundException) throw error;
+      if (
+        updateOrderDto.paymentStatus &&
+        updateOrderDto.paymentStatus !== oldPaymentStatus
+      ) {
+        notifications.push({
+          recipient: (order.user as any)?._id?.toString(),
+          title: 'Payment Status Updated',
+          message: `Payment status for order #${orderId} has been updated to ${updateOrderDto.paymentStatus}.`,
+          type: NotificationType.ORDER_UPDATED,
+          priority: NotificationPriority.MEDIUM,
+          metadata: {
+            orderId: orderId,
+            oldPaymentStatus: oldPaymentStatus,
+            newPaymentStatus: updateOrderDto.paymentStatus,
+            updatedBy: 'admin',
+          },
+          relatedId: new Types.ObjectId(orderId),
+          relatedModel: 'Order',
+        });
+      }
 
+      if (notifications.length > 0) {
+        await this.notificationService.createBulkNotifications(notifications);
+      }
+    } catch (notificationError) {
       this.logger.error(
-        `Failed to update tracking info for order ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        'Failed to update tracking information',
+        'Failed to send admin update notifications:',
+        notificationError,
       );
     }
+
+    return updatedOrder;
   }
 
-  async getDesignOrderStats() {
-    try {
-      const stats = await this.orderModel.aggregate([
-        {
-          $group: {
-            _id: null,
-            totalOrders: { $sum: 1 },
-            ordersWithDesigns: {
-              $sum: { $cond: [{ $gt: ['$designItemCount', 0] }, 1, 0] },
-            },
-            totalDesignItems: { $sum: '$designItemCount' },
-            totalRevenue: { $sum: '$totalAmount' },
-            designOrderRevenue: {
-              $sum: {
-                $cond: [{ $gt: ['$designItemCount', 0] }, '$totalAmount', 0],
-              },
+  async getOrderStats() {
+    const stats = await this.orderModel.aggregate([
+      { $match: { isActive: true } },
+      {
+        $group: {
+          _id: null,
+          totalOrders: { $sum: 1 },
+          totalRevenue: { $sum: '$totalPrice' },
+          pendingOrders: {
+            $sum: { $cond: [{ $eq: ['$status', OrderStatus.PENDING] }, 1, 0] },
+          },
+          deliveredOrders: {
+            $sum: {
+              $cond: [{ $eq: ['$status', OrderStatus.DELIVERED] }, 1, 0],
             },
           },
         },
-      ]);
+      },
+    ]);
 
-      const monthlyStats = await this.orderModel.aggregate([
-        {
-          $match: {
-            createdAt: {
-              $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-            },
-          },
-        },
-        {
-          $group: {
-            _id: {
-              $dateToString: { format: '%Y-%m-%d', date: '$createdAt' },
-            },
-            ordersWithDesigns: {
-              $sum: { $cond: [{ $gt: ['$designItemCount', 0] }, 1, 0] },
-            },
-            totalOrders: { $sum: 1 },
-          },
-        },
-        { $sort: { _id: 1 } },
-      ]);
+    return (
+      stats[0] || {
+        totalOrders: 0,
+        totalRevenue: 0,
+        pendingOrders: 0,
+        deliveredOrders: 0,
+      }
+    );
+  }
 
-      return {
-        overview: stats[0] || {
-          totalOrders: 0,
-          ordersWithDesigns: 0,
-          totalDesignItems: 0,
-          totalRevenue: 0,
-          designOrderRevenue: 0,
-        },
-        monthlyTrend: monthlyStats,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch design order statistics: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        'Failed to fetch design order statistics',
-      );
+  // ==================== PRIVATE HELPERS ====================
+  private asObjectIdString(val: any, fieldLabel: string): string {
+    const maybe =
+      typeof val === 'string'
+        ? val
+        : (val?._id?.toString?.() ?? val?.toString?.());
+
+    if (!maybe || !Types.ObjectId.isValid(maybe)) {
+      throw new BadRequestException(`${fieldLabel} is missing or invalid`);
     }
+    return maybe;
+  }
+
+  private async getAdminUsers() {
+    // TODO: Replace with a real implementation (e.g., UsersService call)
+    return [];
   }
 }

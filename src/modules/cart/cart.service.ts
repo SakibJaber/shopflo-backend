@@ -6,17 +6,29 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
-import { Cart, CartDocument } from './schema/cart.schema';
+import { FlattenMaps, Model, Types } from 'mongoose';
+import { Cart, CartDocument, CartItem } from './schema/cart.schema';
 import { Product, ProductDocument } from '../products/schema/product.schema';
 import { Design, DesignDocument } from '../designs/schema/design.schema';
 import {
   AddRegularProductToCartDto,
-  UpdateCartItemDto,
   AddDesignToCartDto,
 } from './dto/create-cart.dto';
 import { ProductStatus } from 'src/common/enum/product.status.enum';
 import { Size, SizeDocument } from '../sizes/schema/size.schema';
+import { UpdateCartItemDto } from 'src/modules/cart/dto/update-cart.dto';
+
+// Interface for populated cart items
+interface PopulatedCartItem extends Omit<CartItem, 'product' | 'design'> {
+  _id: Types.ObjectId;
+  product: any;
+  design?: any;
+}
+
+// Interface for cart with populated items
+interface PopulatedCart extends Omit<Cart, 'items'> {
+  items: PopulatedCartItem[];
+}
 
 @Injectable()
 export class CartService {
@@ -30,30 +42,6 @@ export class CartService {
     private readonly designModel: Model<DesignDocument>,
     @InjectModel(Size.name) private readonly sizeModel: Model<SizeDocument>,
   ) {}
-  // -------------------- helpers --------------------
-
-  /** Normalize a value that might be a populated doc, ObjectId, or string to an ObjectId string */
-  private asObjectIdString(val: any, fieldLabel: string): string {
-    const maybe =
-      typeof val === 'string'
-        ? val
-        : (val?._id?.toString?.() ?? val?.toString?.());
-
-    if (!maybe || !Types.ObjectId.isValid(maybe)) {
-      throw new BadRequestException(`${fieldLabel} is missing or invalid`);
-    }
-    return maybe;
-  }
-
-  private idsEqual(a: any, b: any): boolean {
-    try {
-      return (
-        this.asObjectIdString(a, 'left') === this.asObjectIdString(b, 'right')
-      );
-    } catch {
-      return false;
-    }
-  }
 
   // ==================== CART MANAGEMENT ====================
 
@@ -85,24 +73,31 @@ export class CartService {
   async getCartWithDetails(userId: string) {
     const cart = await this.getCart(userId);
 
-    // Filter out old items that don't have variantQuantities or have empty variantQuantities
+    // Filter out items with null products or no variantQuantities
     cart.items = cart.items.filter(
       (item: any) =>
+        item.product && // Check that product exists
         item.variantQuantities &&
         Array.isArray(item.variantQuantities) &&
         item.variantQuantities.length > 0,
     );
 
-    // Save the cleaned cart
+    // Save the cleaned cart if modified
     if (cart.isModified()) {
       await cart.save();
     }
 
     let itemsTotal = 0;
     const itemsWithDetails = await Promise.all(
-      cart.items.map(async (item: any) => {
+      cart.items.map(async (item: PopulatedCartItem) => {
         const product = item.product as any;
         const design = item.design as any;
+
+        // Add null check for product variants
+        if (!product || !product.variants) {
+          this.logger.warn(`Product or variants missing for item ${item._id}`);
+          return null;
+        }
 
         // Process each variant in the item
         const variantsWithDetails = await Promise.all(
@@ -122,17 +117,24 @@ export class CartService {
             const sizeQuantitiesWithNames = await Promise.all(
               vq.sizeQuantities.map(async (sq: any) => {
                 const sizeDoc = await this.sizeModel.findById(sq.size);
+                const sizeTotal = this.formatCurrency(
+                  product.discountedPrice * sq.quantity,
+                );
+
                 return {
                   size: sq.size,
                   sizeName: sizeDoc?.name || 'Unknown',
                   quantity: sq.quantity,
+                  sizeTotal: sizeTotal,
                 };
               }),
             );
 
-            const variantTotal = sizeQuantitiesWithNames.reduce(
-              (sum: number, sq) => sum + product.discountedPrice * sq.quantity,
-              0,
+            const variantTotal = this.formatCurrency(
+              sizeQuantitiesWithNames.reduce(
+                (sum: number, sq) => sum + sq.sizeTotal,
+                0,
+              ),
             );
 
             // Use design images if available, otherwise variant images
@@ -162,9 +164,11 @@ export class CartService {
 
         // Filter out null variants and calculate item total
         const validVariants = variantsWithDetails.filter(Boolean);
-        const itemTotal = validVariants.reduce(
-          (sum: number, variant: any) => sum + variant.variantTotal,
-          0,
+        const itemTotal = this.formatCurrency(
+          validVariants.reduce(
+            (sum: number, variant: any) => sum + variant.variantTotal,
+            0,
+          ),
         );
         itemsTotal += itemTotal;
 
@@ -174,8 +178,8 @@ export class CartService {
             _id: product._id,
             productName: product.productName,
             brand: product.brand,
-            price: product.price,
-            discountedPrice: product.discountedPrice,
+            price: this.formatCurrency(product.price),
+            discountedPrice: this.formatCurrency(product.discountedPrice),
             thumbnail: product.thumbnail,
           },
           design: design
@@ -185,13 +189,16 @@ export class CartService {
               }
             : null,
           variants: validVariants,
-          price: product.discountedPrice,
+          price: this.formatCurrency(product.discountedPrice),
           total: itemTotal,
           isSelected: item.isSelected,
           isDesignItem: item.isDesignItem,
         };
       }),
     );
+
+    // Filter out null items
+    const validItems = itemsWithDetails.filter(Boolean);
 
     // Calculate total quantities
     const totalQuantity = cart.items.reduce((total: number, item: any) => {
@@ -216,396 +223,420 @@ export class CartService {
     );
 
     return {
-      items: itemsWithDetails,
+      items: validItems,
       summary: {
-        itemsTotal,
-        totalAmount: itemsTotal,
-        itemCount: cart.items.length,
+        itemsTotal: this.formatCurrency(itemsTotal),
+        totalAmount: this.formatCurrency(itemsTotal),
+        itemCount: validItems.length,
         variantCount,
         totalQuantity,
       },
     };
   }
 
-  // ==================== ADD REGULAR PRODUCT ====================
-
   async addRegularProductToCart(
     userId: string,
     dto: AddRegularProductToCartDto,
   ): Promise<any> {
-    const product = await this.productModel
-      .findById(dto.product)
-      .populate('variants.color', 'name hexValue')
-      .populate('variants.size', 'name _id')
-      .exec();
+    try {
+      // Step 1: Find and validate product
+      const product = await this.productModel
+        .findById(dto.product)
+        .populate({
+          path: 'variants.color',
+          select: 'name hexValue',
+        })
+        .populate({
+          path: 'variants.size',
+          select: 'name',
+        })
+        .exec();
 
-    if (!product) throw new NotFoundException('Product not found');
+      if (!product) {
+        throw new NotFoundException('Product not found');
+      }
 
-    // Validate all variants and their sizes
-    const validatedVariants = await Promise.all(
-      dto.variantQuantities.map(async (vq) => {
-        const variant = (product.variants as any).find(
-          (v: any) => v._id.toString() === vq.variant,
-        );
+      if (!product.variants || product.variants.length === 0) {
+        throw new BadRequestException('Product has no variants');
+      }
 
-        if (!variant) {
-          throw new NotFoundException(`Variant ${vq.variant} not found`);
-        }
-
-        if (variant.stockStatus === ProductStatus.STOCKOUT) {
-          throw new BadRequestException(
-            `Variant ${variant.color.name} is out of stock`,
+      // Step 2: Validate all variants and sizes
+      const validatedVariants = await Promise.all(
+        dto.variantQuantities.map(async (vq) => {
+          const variant = (product.variants as any[]).find(
+            (v: any) => v._id.toString() === vq.variant,
           );
-        }
 
-        // Validate sizes for this variant
-        const validSizeQuantities = vq.sizeQuantities.filter(
-          (sq) => sq.quantity > 0,
-        );
+          if (!variant) {
+            throw new NotFoundException(`Variant ${vq.variant} not found`);
+          }
 
-        if (validSizeQuantities.length === 0) {
-          throw new BadRequestException(
-            `At least one size with quantity > 0 is required for variant ${variant.color.name}`,
-          );
-        }
-
-        const availableSizeIds = variant.size.map((s: any) => s._id.toString());
-        for (const sq of validSizeQuantities) {
-          if (!availableSizeIds.includes(sq.size)) {
-            const sizeDoc = await this.sizeModel.findById(sq.size);
+          if (variant.stockStatus === ProductStatus.STOCKOUT) {
             throw new BadRequestException(
-              `Size ${sizeDoc?.name || sq.size} not available for variant ${variant.color.name}`,
+              `Variant ${variant.color?.name || vq.variant} is out of stock`,
             );
           }
-        }
 
-        return {
-          variant,
-          sizeQuantities: validSizeQuantities,
+          // Validate sizes
+          const validSizeQuantities = vq.sizeQuantities.filter(
+            (sq) => sq.quantity > 0,
+          );
+
+          if (validSizeQuantities.length === 0) {
+            throw new BadRequestException(
+              `At least one size with quantity > 0 is required for variant ${variant.color?.name || vq.variant}`,
+            );
+          }
+
+          // Check if sizes are available for this variant
+          const availableSizeIds = (variant.size || []).map((s: any) =>
+            s._id ? s._id.toString() : s.toString(),
+          );
+
+          for (const sq of validSizeQuantities) {
+            if (!availableSizeIds.includes(sq.size)) {
+              const sizeDoc = await this.sizeModel.findById(sq.size);
+              throw new BadRequestException(
+                `Size ${sizeDoc?.name || sq.size} not available for variant ${variant.color?.name || vq.variant}`,
+              );
+            }
+          }
+
+          return {
+            variant,
+            sizeQuantities: validSizeQuantities,
+          };
+        }),
+      );
+
+      if (validatedVariants.length === 0) {
+        throw new BadRequestException('No valid variants provided');
+      }
+
+      // Step 3: Get or create cart
+      const cart = await this.getOrCreateCart(userId);
+
+      // Step 4: Find existing regular product item (without design)
+      const existingItemIndex = cart.items.findIndex(
+        (item: any) => item.product.toString() === dto.product && !item.design,
+      );
+
+      if (existingItemIndex > -1) {
+        // Merge with existing item
+        await this.mergeVariantQuantities(
+          cart.items[existingItemIndex],
+          validatedVariants,
+        );
+        cart.items[existingItemIndex].isSelected = dto.isSelected ?? false;
+        console.log('where is the error man===============>');
+      } else {
+        // Create new cart item
+        const newItem = {
+          _id: new Types.ObjectId(),
+          product: new Types.ObjectId(dto.product),
+          variantQuantities: validatedVariants.map(
+            ({ variant, sizeQuantities }) => ({
+              variant: new Types.ObjectId(variant._id),
+              sizeQuantities: sizeQuantities.map((sq) => ({
+                size: new Types.ObjectId(sq.size),
+                quantity: sq.quantity,
+              })),
+            }),
+          ),
+          isSelected: dto.isSelected ?? false,
+          price: product.discountedPrice,
+          isDesignItem: false,
         };
-      }),
-    );
+        console.log(
+          'validatedVariants=============>',
+          dto.variantQuantities,
+          product.variants,
+        );
 
-    if (validatedVariants.length === 0) {
-      throw new BadRequestException(
-        'At least one variant with quantities is required',
+        cart.items.push(newItem as any);
+      }
+      // Step 5: Save and return
+      await cart.save();
+      return await this.getCartWithDetails(userId);
+    } catch (error) {
+      this.logger.error(
+        `Error adding regular product to cart: ${error.message}`,
       );
+      throw error;
     }
-
-    const cart = await this.getOrCreateCart(userId);
-
-    // Find existing item for this product (without design)
-    const existingItemIndex = cart.items.findIndex(
-      (item: any) => item.product.toString() === dto.product && !item.design,
-    );
-
-    if (existingItemIndex > -1) {
-      // Merge variant quantities into existing item
-      await this.mergeVariantQuantities(
-        cart.items[existingItemIndex],
-        validatedVariants,
-      );
-      cart.items[existingItemIndex].isSelected = dto.isSelected ?? false;
-    } else {
-      // Create new cart item with multiple variants
-      const newItem = {
-        product: new Types.ObjectId(dto.product),
-        variantQuantities: validatedVariants.map(
-          ({ variant, sizeQuantities }) => ({
-            variant: new Types.ObjectId(variant._id),
-            sizeQuantities: sizeQuantities.map((sq) => ({
-              size: new Types.ObjectId(sq.size),
-              quantity: sq.quantity,
-            })),
-          }),
-        ),
-        isSelected: dto.isSelected ?? false,
-        price: product.discountedPrice,
-        isDesignItem: false,
-      };
-
-      cart.items.push(newItem as any);
-    }
-
-    await cart.save();
-    return await this.getCartWithDetails(userId);
   }
 
-  // ==================== ADD DESIGN PRODUCT ====================
-
-  // async addDesignToCart(userId: string, dto: AddDesignToCartDto): Promise<any> {
-  //   const design = await this.designModel
-  //     .findOne({
-  //       _id: new Types.ObjectId(dto.design),
-  //       user: new Types.ObjectId(userId),
-  //       isActive: true,
-  //     })
-  //     .populate('baseProduct')
-  //     // .populate('color')
-  //     .exec();
-
-  //   if (!design) {
-  //     throw new NotFoundException('Design not found or access denied');
-  //   }
-
-  //   const baseProductId = this.asObjectIdString(
-  //     (design as any).baseProduct,
-  //     'Design base product',
-  //   );
-
-  //   const product = await this.productModel
-  //     .findById(baseProductId)
-  //     .populate('variants.color', 'name hexValue')
-  //     .populate('variants.size', 'name _id')
-  //     .exec();
-
-  //   if (!product) throw new NotFoundException('Base product not found');
-
-  //   const variants: any[] = Array.isArray((product as any).variants)
-  //     ? (product as any).variants
-  //     : [];
-
-  //   // Validate all design variants
-  //   const validatedVariants = await Promise.all(
-  //     dto.variantQuantities.map(async (vq) => {
-  //       const variant = variants.find((v: any) =>
-  //         this.idsEqual(v._id, vq.variant),
-  //       );
-
-  //       if (!variant) {
-  //         throw new NotFoundException(
-  //           `Variant ${vq.variant} not found in base product`,
-  //         );
-  //       }
-
-  //       if (variant.stockStatus === ProductStatus.STOCKOUT) {
-  //         throw new BadRequestException(
-  //           `Variant ${variant.color.name} is out of stock`,
-  //         );
-  //       }
-
-  //       // Validate sizes
-  //       const validSizeQuantities = vq.sizeQuantities.filter(
-  //         (sq) => sq.quantity > 0,
-  //       );
-
-  //       if (validSizeQuantities.length === 0) {
-  //         throw new BadRequestException(
-  //           `At least one size with quantity > 0 is required for variant ${variant.color.name}`,
-  //         );
-  //       }
-
-  //       const availableSizeIds = variant.size.map((s: any) =>
-  //         this.asObjectIdString(s, 'Variant size'),
-  //       );
-
-  //       for (const sq of validSizeQuantities) {
-  //         const sizeId = this.asObjectIdString(sq.size, 'Size');
-  //         if (!availableSizeIds.includes(sizeId)) {
-  //           const sizeDoc = await this.sizeModel.findById(sq.size);
-  //           throw new BadRequestException(
-  //             `Size ${sizeDoc?.name || sq.size} not available for variant ${variant.color.name}`,
-  //           );
-  //         }
-  //       }
-
-  //       return {
-  //         variant,
-  //         sizeQuantities: validSizeQuantities,
-  //       };
-  //     }),
-  //   );
-
-  //   if (validatedVariants.length === 0) {
-  //     throw new BadRequestException(
-  //       'At least one variant with quantities is required',
-  //     );
-  //   }
-
-  //   const cart = await this.getOrCreateCart(userId);
-
-  //   // Find existing design item
-  //   const existingItemIndex = cart.items.findIndex((item: any) =>
-  //     this.idsEqual(item.design, dto.design),
-  //   );
-
-  //   if (existingItemIndex > -1) {
-  //     // Merge variant quantities
-  //     await this.mergeVariantQuantities(
-  //       cart.items[existingItemIndex],
-  //       validatedVariants,
-  //     );
-  //     cart.items[existingItemIndex].isSelected = dto.isSelected ?? false;
-  //   } else {
-  //     // Create new design item with multiple variants
-  //     const newItem = {
-  //       product: new Types.ObjectId(baseProductId),
-  //       design: new Types.ObjectId(this.asObjectIdString(dto.design, 'Design')),
-  //       variantQuantities: validatedVariants.map(
-  //         ({ variant, sizeQuantities }) => ({
-  //           variant: new Types.ObjectId(
-  //             this.asObjectIdString(variant._id, 'Variant'),
-  //           ),
-  //           sizeQuantities: sizeQuantities.map((sq) => ({
-  //             size: new Types.ObjectId(this.asObjectIdString(sq.size, 'Size')),
-  //             quantity: sq.quantity,
-  //           })),
-  //         }),
-  //       ),
-  //       isSelected: dto.isSelected ?? false,
-  //       price: product.discountedPrice,
-  //       designData: {
-  //         designName: (design as any).designName,
-  //         frontImage: (design as any).frontImage,
-  //         backImage: (design as any).backImage,
-  //         leftImage: (design as any).leftImage,
-  //         rightImage: (design as any).rightImage,
-  //       },
-  //       isDesignItem: true,
-  //     };
-
-  //     cart.items.push(newItem as any);
-  //   }
-
-  //   await cart.save();
-  //   return await this.getCartWithDetails(userId);
-  // }
+  // ==================== ADD DESIGN TO CART ====================
 
   async addDesignToCart(userId: string, dto: AddDesignToCartDto): Promise<any> {
-    const design = await this.designModel
-      .findOne({
-        _id: new Types.ObjectId(dto.design),
-        user: new Types.ObjectId(userId),
-        isActive: true,
-      })
-      .populate('baseProduct') // Only populate baseProduct, not color
-      .exec();
+    try {
+      // Step 1: Find and validate design
+      const design = await this.designModel
+        .findOne({
+          _id: new Types.ObjectId(dto.design),
+          user: new Types.ObjectId(userId),
+          isActive: true,
+        })
+        .populate({
+          path: 'baseProduct',
+          populate: [
+            {
+              path: 'variants.color',
+              select: 'name hexValue',
+            },
+            {
+              path: 'variants.size',
+              select: 'name',
+            },
+          ],
+        })
+        .exec();
 
-    if (!design) {
-      throw new NotFoundException('Design not found or access denied');
+      if (!design) {
+        throw new NotFoundException('Design not found or access denied');
+      }
+
+      const baseProduct = (design as any).baseProduct;
+      if (!baseProduct) {
+        throw new NotFoundException('Base product not found for this design');
+      }
+
+      if (!baseProduct.variants || baseProduct.variants.length === 0) {
+        throw new BadRequestException('Base product has no variants');
+      }
+
+      // Step 2: Validate all variants and sizes
+      const validatedVariants = await Promise.all(
+        dto.variantQuantities.map(async (vq) => {
+          const variant = (baseProduct.variants as any[]).find(
+            (v: any) => v._id.toString() === vq.variant,
+          );
+
+          if (!variant) {
+            throw new NotFoundException(
+              `Variant ${vq.variant} not found in base product`,
+            );
+          }
+
+          if (variant.stockStatus === ProductStatus.STOCKOUT) {
+            throw new BadRequestException(
+              `Variant ${variant.color?.name || vq.variant} is out of stock`,
+            );
+          }
+
+          // Validate sizes
+          const validSizeQuantities = vq.sizeQuantities.filter(
+            (sq) => sq.quantity > 0,
+          );
+
+          if (validSizeQuantities.length === 0) {
+            throw new BadRequestException(
+              `At least one size with quantity > 0 is required for variant ${variant.color?.name || vq.variant}`,
+            );
+          }
+
+          // Check if sizes are available for this variant
+          const availableSizeIds = (variant.size || []).map((s: any) =>
+            s._id ? s._id.toString() : s.toString(),
+          );
+
+          for (const sq of validSizeQuantities) {
+            if (!availableSizeIds.includes(sq.size)) {
+              const sizeDoc = await this.sizeModel.findById(sq.size);
+              throw new BadRequestException(
+                `Size ${sizeDoc?.name || sq.size} not available for variant ${variant.color?.name || vq.variant}`,
+              );
+            }
+          }
+
+          return {
+            variant,
+            sizeQuantities: validSizeQuantities,
+          };
+        }),
+      );
+
+      if (validatedVariants.length === 0) {
+        throw new BadRequestException('No valid variants provided');
+      }
+
+      // Step 3: Get or create cart
+      const cart = await this.getOrCreateCart(userId);
+
+      // Step 4: Find existing design item
+      const existingItemIndex = cart.items.findIndex(
+        (item: any) => item.design && item.design.toString() === dto.design,
+      );
+
+      if (existingItemIndex > -1) {
+        // Merge with existing design item
+        await this.mergeVariantQuantities(
+          cart.items[existingItemIndex],
+          validatedVariants,
+        );
+        cart.items[existingItemIndex].isSelected = dto.isSelected ?? false;
+      } else {
+        // Create new design item
+        const newItem = {
+          _id: new Types.ObjectId(),
+          product: new Types.ObjectId(baseProduct._id),
+          design: new Types.ObjectId(dto.design),
+          variantQuantities: validatedVariants.map(
+            ({ variant, sizeQuantities }) => ({
+              variant: new Types.ObjectId(variant._id),
+              sizeQuantities: sizeQuantities.map((sq) => ({
+                size: new Types.ObjectId(sq.size),
+                quantity: sq.quantity,
+              })),
+            }),
+          ),
+          isSelected: dto.isSelected ?? false,
+          price: baseProduct.discountedPrice,
+          designData: {
+            designName: (design as any).designName,
+            frontImage: (design as any).frontImage,
+            backImage: (design as any).backImage,
+            leftImage: (design as any).leftImage,
+            rightImage: (design as any).rightImage,
+          },
+          isDesignItem: true,
+        };
+
+        cart.items.push(newItem as any);
+      }
+
+      // Step 5: Save and return
+      await cart.save();
+      return await this.getCartWithDetails(userId);
+    } catch (error) {
+      this.logger.error(`Error adding design to cart: ${error.message}`);
+      throw error;
+    }
+  }
+
+  // ==================== GET ITEM DETAILS ====================
+
+  async getItemDetails(userId: string, itemId: string): Promise<any> {
+    const cart = await this.getCart(userId);
+
+    const item = cart.items.find((item: any) => item._id.toString() === itemId);
+
+    if (!item) {
+      throw new NotFoundException('Cart item not found');
     }
 
-    const baseProductId = this.asObjectIdString(
-      (design as any).baseProduct,
-      'Design base product',
-    );
+    const product = item.product as any;
+    const design = item.design as any;
 
-    const product = await this.productModel
-      .findById(baseProductId)
-      .populate('variants.color', 'name hexValue')
-      .populate('variants.size', 'name _id')
-      .exec();
-
-    if (!product) throw new NotFoundException('Base product not found');
-
-    const variants: any[] = Array.isArray((product as any).variants)
-      ? (product as any).variants
-      : [];
-
-    // Validate all design variants
-    const validatedVariants = await Promise.all(
-      dto.variantQuantities.map(async (vq) => {
-        const variant = variants.find((v: any) =>
-          this.idsEqual(v._id, vq.variant),
+    // Process each variant in the item
+    const variantsWithDetails = await Promise.all(
+      item.variantQuantities.map(async (vq: any) => {
+        const variant = product.variants.find(
+          (v: any) => v._id.toString() === vq.variant.toString(),
         );
 
         if (!variant) {
-          throw new NotFoundException(
-            `Variant ${vq.variant} not found in base product`,
+          this.logger.warn(
+            `Variant ${vq.variant} not found in product ${product._id}`,
           );
+          return null;
         }
 
-        if (variant.stockStatus === ProductStatus.STOCKOUT) {
-          throw new BadRequestException(
-            `Variant ${variant.color.name} is out of stock`,
-          );
-        }
-
-        // Validate sizes
-        const validSizeQuantities = vq.sizeQuantities.filter(
-          (sq) => sq.quantity > 0,
-        );
-
-        if (validSizeQuantities.length === 0) {
-          throw new BadRequestException(
-            `At least one size with quantity > 0 is required for variant ${variant.color.name}`,
-          );
-        }
-
-        const availableSizeIds = variant.size.map((s: any) =>
-          this.asObjectIdString(s, 'Variant size'),
-        );
-
-        for (const sq of validSizeQuantities) {
-          const sizeId = this.asObjectIdString(sq.size, 'Size');
-          if (!availableSizeIds.includes(sizeId)) {
+        // Get size details for this variant
+        const sizeQuantitiesWithNames = await Promise.all(
+          vq.sizeQuantities.map(async (sq: any) => {
             const sizeDoc = await this.sizeModel.findById(sq.size);
-            throw new BadRequestException(
-              `Size ${sizeDoc?.name || sq.size} not available for variant ${variant.color.name}`,
+            const sizeTotal = this.formatCurrency(
+              product.discountedPrice * sq.quantity,
             );
-          }
-        }
+
+            return {
+              size: sq.size,
+              sizeName: sizeDoc?.name || 'Unknown',
+              quantity: sq.quantity,
+              price: this.formatCurrency(product.discountedPrice),
+              sizeTotal: sizeTotal,
+            };
+          }),
+        );
+
+        const variantTotal = this.formatCurrency(
+          sizeQuantitiesWithNames.reduce(
+            (sum: number, sq) => sum + sq.sizeTotal,
+            0,
+          ),
+        );
+
+        // Use design images if available, otherwise variant images
+        const displayImages = design
+          ? {
+              frontImage: design.frontImage || variant.frontImage,
+              backImage: design.backImage || variant.backImage,
+              leftImage: design.leftImage || variant.leftImage,
+              rightImage: design.rightImage || variant.rightImage,
+            }
+          : {
+              frontImage: variant.frontImage,
+              backImage: variant.backImage,
+              leftImage: variant.leftImage,
+              rightImage: variant.rightImage,
+            };
 
         return {
-          variant,
-          sizeQuantities: validSizeQuantities,
+          variantId: variant._id,
+          color: variant.color,
+          sizeQuantities: sizeQuantitiesWithNames,
+          displayImages,
+          variantTotal,
         };
       }),
     );
 
-    if (validatedVariants.length === 0) {
-      throw new BadRequestException(
-        'At least one variant with quantities is required',
-      );
-    }
-
-    const cart = await this.getOrCreateCart(userId);
-
-    // Find existing design item
-    const existingItemIndex = cart.items.findIndex((item: any) =>
-      this.idsEqual(item.design, dto.design),
+    // Filter out null variants and calculate item total
+    const validVariants = variantsWithDetails.filter(Boolean);
+    const itemTotal = this.formatCurrency(
+      validVariants.reduce(
+        (sum: number, variant: any) => sum + variant.variantTotal,
+        0,
+      ),
     );
 
-    if (existingItemIndex > -1) {
-      // Merge variant quantities
-      await this.mergeVariantQuantities(
-        cart.items[existingItemIndex],
-        validatedVariants,
-      );
-      cart.items[existingItemIndex].isSelected = dto.isSelected ?? false;
-    } else {
-      // Create new design item with multiple variants
-      const newItem = {
-        product: new Types.ObjectId(baseProductId),
-        design: new Types.ObjectId(this.asObjectIdString(dto.design, 'Design')),
-        variantQuantities: validatedVariants.map(
-          ({ variant, sizeQuantities }) => ({
-            variant: new Types.ObjectId(
-              this.asObjectIdString(variant._id, 'Variant'),
-            ),
-            sizeQuantities: sizeQuantities.map((sq) => ({
-              size: new Types.ObjectId(this.asObjectIdString(sq.size, 'Size')),
-              quantity: sq.quantity,
-            })),
-          }),
-        ),
-        isSelected: dto.isSelected ?? false,
-        price: product.discountedPrice,
-        designData: {
-          designName: (design as any).designName,
-          frontImage: (design as any).frontImage,
-          backImage: (design as any).backImage,
-          leftImage: (design as any).leftImage,
-          rightImage: (design as any).rightImage,
-        },
-        isDesignItem: true,
-      };
+    // Calculate total quantity for this item
+    const totalQuantity = item.variantQuantities.reduce(
+      (total: number, vq: any) => {
+        return (
+          total +
+          vq.sizeQuantities.reduce((sizeTotal: number, sq: any) => {
+            return sizeTotal + sq.quantity;
+          }, 0)
+        );
+      },
+      0,
+    );
 
-      cart.items.push(newItem as any);
-    }
-
-    await cart.save();
-    return await this.getCartWithDetails(userId);
+    return {
+      _id: item._id,
+      product: {
+        _id: product._id,
+        productName: product.productName,
+        brand: product.brand,
+        price: this.formatCurrency(product.price),
+        discountedPrice: this.formatCurrency(product.discountedPrice),
+        thumbnail: product.thumbnail,
+      },
+      design: design
+        ? {
+            _id: design._id,
+            designName: design.designName,
+          }
+        : null,
+      variants: validVariants,
+      price: this.formatCurrency(product.discountedPrice),
+      total: itemTotal,
+      totalQuantity,
+      isSelected: item.isSelected,
+      isDesignItem: item.isDesignItem,
+    };
   }
 
   // ==================== UPDATE CART ITEM ====================
@@ -627,19 +658,116 @@ export class CartService {
 
     // Update variant quantities if provided
     if (dto.variantQuantities && dto.variantQuantities.length > 0) {
-      // For simplicity, replace all variant quantities
-      // You might want to add merge logic here similar to add methods
-      item.variantQuantities = dto.variantQuantities.map((vq) => ({
-        variant: new Types.ObjectId(vq.variant),
-        sizeQuantities: vq.sizeQuantities
-          .filter((sq) => sq.quantity > 0)
-          .map((sq) => ({
-            size: new Types.ObjectId(sq.size),
-            quantity: sq.quantity,
-          })),
-      }));
+      // Get product to validate new variants
+      const product = await this.productModel
+        .findById(item.product)
+        .populate('variants.color', 'name hexValue')
+        .populate('variants.size', 'name _id')
+        .exec();
 
-      // Remove item if no variants with quantities
+      if (!product) throw new NotFoundException('Product not found');
+
+      for (const updatedVariant of dto.variantQuantities) {
+        const existingVariantIndex = item.variantQuantities.findIndex(
+          (vq: any) => vq.variant.toString() === updatedVariant.variant,
+        );
+
+        if (existingVariantIndex > -1) {
+          // Handle empty sizeQuantities array - remove the entire variant
+          if (updatedVariant.sizeQuantities.length === 0) {
+            // Remove the entire variant
+            item.variantQuantities.splice(existingVariantIndex, 1);
+            continue;
+          }
+
+          // Update existing variant - only update provided sizes, keep others unchanged
+          const existingVariant = item.variantQuantities[existingVariantIndex];
+
+          // Create a map of existing size quantities for easy lookup
+          const existingSizeMap = new Map();
+          existingVariant.sizeQuantities.forEach((sq: any) => {
+            existingSizeMap.set(sq.size.toString(), sq);
+          });
+
+          // Update only the sizes provided in the request
+          for (const updatedSize of updatedVariant.sizeQuantities) {
+            if (updatedSize.quantity > 0) {
+              // Update existing size or add new size to this variant
+              existingSizeMap.set(updatedSize.size, {
+                size: new Types.ObjectId(updatedSize.size),
+                quantity: updatedSize.quantity,
+              });
+            } else {
+              // Remove size if quantity is 0 or negative
+              existingSizeMap.delete(updatedSize.size);
+            }
+          }
+
+          // Convert back to array
+          existingVariant.sizeQuantities = Array.from(existingSizeMap.values());
+        } else {
+          // Skip if trying to add a variant with empty sizeQuantities
+          if (updatedVariant.sizeQuantities.length === 0) {
+            continue;
+          }
+
+          // Validate new variant before adding
+          const newVariant = (product.variants as any).find(
+            (v: any) => v._id.toString() === updatedVariant.variant,
+          );
+
+          if (!newVariant) {
+            throw new NotFoundException(
+              `Variant ${updatedVariant.variant} not found in product`,
+            );
+          }
+
+          if (newVariant.stockStatus === ProductStatus.STOCKOUT) {
+            throw new BadRequestException(
+              `Variant ${newVariant.color.name} is out of stock`,
+            );
+          }
+
+          // Validate sizes for new variant
+          const validSizeQuantities = updatedVariant.sizeQuantities.filter(
+            (sq) => sq.quantity > 0,
+          );
+
+          if (validSizeQuantities.length === 0) {
+            throw new BadRequestException(
+              `At least one size with quantity > 0 is required for new variant ${newVariant.color.name}`,
+            );
+          }
+
+          const availableSizeIds = newVariant.size.map((s: any) =>
+            s._id.toString(),
+          );
+          for (const sq of validSizeQuantities) {
+            if (!availableSizeIds.includes(sq.size)) {
+              const sizeDoc = await this.sizeModel.findById(sq.size);
+              throw new BadRequestException(
+                `Size ${sizeDoc?.name || sq.size} not available for variant ${newVariant.color.name}`,
+              );
+            }
+          }
+
+          // Add new variant after validation
+          item.variantQuantities.push({
+            variant: new Types.ObjectId(updatedVariant.variant),
+            sizeQuantities: validSizeQuantities.map((sq) => ({
+              size: new Types.ObjectId(sq.size),
+              quantity: sq.quantity,
+            })),
+          });
+        }
+      }
+
+      // Remove variants with no size quantities
+      item.variantQuantities = item.variantQuantities.filter(
+        (vq: any) => vq.sizeQuantities && vq.sizeQuantities.length > 0,
+      );
+
+      // Remove entire item if no variants left
       if (item.variantQuantities.length === 0) {
         cart.items.splice(itemIndex, 1);
       }
@@ -650,11 +778,42 @@ export class CartService {
       item.isSelected = dto.isSelected;
     }
 
+    cart.markModified('items');
+    await cart.save();
+    return await this.getCartWithDetails(userId);
+  }
+
+  // ==================== REMOVE CART ITEM ====================
+
+  async removeCartItem(userId: string, itemId: string): Promise<any> {
+    const cart = await this.getCart(userId);
+
+    const itemIndex = cart.items.findIndex(
+      (item: any) => item._id.toString() === itemId,
+    );
+
+    if (itemIndex === -1) throw new NotFoundException('Cart item not found');
+
+    cart.items.splice(itemIndex, 1);
+    await cart.save();
+
+    return await this.getCartWithDetails(userId);
+  }
+
+  // ==================== CLEAR CART ====================
+
+  async clearCart(userId: string): Promise<any> {
+    const cart = await this.getCart(userId);
+    cart.items = [];
     await cart.save();
     return await this.getCartWithDetails(userId);
   }
 
   // ==================== PRIVATE HELPERS ====================
+
+  private formatCurrency(amount: number): number {
+    return parseFloat(amount.toFixed(2));
+  }
 
   private async mergeVariantQuantities(
     item: any,
@@ -671,6 +830,7 @@ export class CartService {
 
       if (existingVariantIndex > -1) {
         // Merge sizes for existing variant
+
         const existingVariant = item.variantQuantities[existingVariantIndex];
         const sizeMap = new Map<string, number>();
 
@@ -705,35 +865,7 @@ export class CartService {
     }
   }
 
-  // ==================== REMOVE CART ITEM ====================
-
-  async removeCartItem(userId: string, itemId: string): Promise<any> {
-    const cart = await this.getCart(userId);
-
-    const itemIndex = cart.items.findIndex(
-      (item: any) => item._id.toString() === itemId,
-    );
-
-    if (itemIndex === -1) throw new NotFoundException('Cart item not found');
-
-    cart.items.splice(itemIndex, 1);
-    await cart.save();
-
-    return await this.getCartWithDetails(userId);
-  }
-
-  // ==================== CLEAR CART ====================
-
-  async clearCart(userId: string): Promise<any> {
-    const cart = await this.getCart(userId);
-    cart.items = [];
-    await cart.save();
-    return await this.getCartWithDetails(userId);
-  }
-
-  // ==================== PRIVATE HELPERS ====================
-
-  // private async getCart(userId: string): Promise<CartDocument> {
+  // private async getCart(userId: string): Promise<any> {
   //   const cart = await this.cartModel
   //     .findOne({ user: new Types.ObjectId(userId), isActive: true })
   //     .populate({
@@ -741,50 +873,96 @@ export class CartService {
   //       select:
   //         'productName brand price discountPercentage discountedPrice variants thumbnail',
   //       populate: [
-  //         { path: 'variants.color', select: 'name hexValue' },
-  //         { path: 'variants.size', select: 'name' },
+  //         {
+  //           path: 'brand',
+  //           select: 'brandName brandLogo',
+  //         },
+  //         {
+  //           path: 'variants.color',
+  //           select: 'name hexValue',
+  //         },
+  //         {
+  //           path: 'variants.size',
+  //           select: 'name',
+  //         },
   //       ],
   //     })
   //     .populate({
   //       path: 'items.design',
-  //       select: 'designName frontImage backImage leftImage rightImage ',
+  //       select: 'designName frontImage backImage leftImage rightImage',
+  //       populate: {
+  //         path: 'baseProduct',
+  //         select:
+  //           'productName brand price discountPercentage discountedPrice variants thumbnail',
+  //         populate: [
+  //           {
+  //             path: 'brand',
+  //             select: 'brandName brandLogo',
+  //           },
+  //           {
+  //             path: 'variants.color',
+  //             select: 'name hexValue',
+  //           },
+  //           {
+  //             path: 'variants.size',
+  //             select: 'name',
+  //           },
+  //         ],
+  //       },
   //     })
-  //     // .populate('items.color', 'name hexValue')
   //     .exec();
 
   //   if (!cart) return await this.createCart(userId);
   //   return cart;
   // }
 
-  private async getCart(userId: string): Promise<CartDocument> {
-    const cart = await this.cartModel
+  private async getCart(userId: string): Promise<any> {
+    let cart = await this.cartModel
       .findOne({ user: new Types.ObjectId(userId), isActive: true })
-      .populate({
-        path: 'items.product',
-        select:
-          'productName brand price discountPercentage discountedPrice variants thumbnail',
-        populate: [
-          {
-            path: 'brand',
-            select: 'brandName brandLogo',
-          },
-          {
+      .exec(); // ⬅ remove `.lean()`
+
+    if (!cart) {
+      return await this.createCart(userId);
+    }
+
+    // Manually populate products for each item
+    const populatedItems = await Promise.all(
+      cart.items.map(async (item: any) => {
+        const product = await this.productModel
+          .findById(item.product)
+          .populate({
             path: 'variants.color',
             select: 'name hexValue',
-          },
-          {
+          })
+          .populate({
             path: 'variants.size',
             select: 'name',
-          },
-        ],
-      })
-      .populate({
-        path: 'items.design',
-        select: 'designName frontImage backImage leftImage rightImage',
-      })
-      .exec();
+          })
+          .exec();
 
-    if (!cart) return await this.createCart(userId);
+        let design: DesignDocument | null = null;
+        if (item.design) {
+          design = await this.designModel
+            .findById(item.design)
+            .populate({
+              path: 'baseProduct',
+              populate: [
+                { path: 'variants.color', select: 'name hexValue' },
+                { path: 'variants.size', select: 'name' },
+              ],
+            })
+            .exec();
+        }
+
+        return {
+          ...item.toObject(), // convert subdoc to plain
+          product,
+          design,
+        };
+      }),
+    );
+
+    cart.items = populatedItems;
     return cart;
   }
 
@@ -794,31 +972,5 @@ export class CartService {
       isActive: true,
     });
     return cart || this.createCart(userId);
-  }
-
-  private mergeSizeQuantities(
-    item: any,
-    newSizeQuantities: Array<{ size: string; quantity: number }>,
-  ): void {
-    const sizeMap = new Map<string, number>();
-
-    // Initialize with existing quantities
-    item.sizeQuantities.forEach((sq: any) => {
-      sizeMap.set(sq.size.toString(), sq.quantity);
-    });
-
-    // Merge with new quantities
-    for (const sq of newSizeQuantities) {
-      const currentQty = sizeMap.get(sq.size) || 0;
-      sizeMap.set(sq.size, currentQty + sq.quantity);
-    }
-
-    // Convert back to array format
-    item.sizeQuantities = Array.from(sizeMap.entries()).map(
-      ([size, quantity]) => ({
-        size: new Types.ObjectId(size),
-        quantity,
-      }),
-    );
   }
 }

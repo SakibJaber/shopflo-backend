@@ -10,6 +10,7 @@ import {
   UseInterceptors,
   UseGuards,
   Req,
+  Query,
 } from '@nestjs/common';
 import { ReviewService } from './review.service';
 import { CreateReviewDto } from './dto/create-review.dto';
@@ -44,6 +45,37 @@ export class ReviewController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.reviewService.findOne(id);
+  }
+
+  @Get('product/:productId')
+  async listByProduct(
+    @Param('productId') productId: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
+  ) {
+    const skip = (Number(page) - 1) * Number(limit);
+    const [items, total] = await Promise.all([
+      this.reviewService['reviewModel']
+        .find({ product: productId })
+        .populate('user')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .lean()
+        .exec(),
+      this.reviewService['reviewModel'].countDocuments({ product: productId }),
+    ]);
+
+    return {
+      message: 'Reviews fetched successfully',
+      data: items,
+      meta: {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(total / Number(limit)),
+      },
+    };
   }
 
   @Patch(':id')

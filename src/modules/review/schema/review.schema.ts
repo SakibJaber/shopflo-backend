@@ -1,25 +1,27 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
-@Schema({ timestamps: true })
-export class Review extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  user: Types.ObjectId;
+export type ReviewDocument = Review & Document;
 
+@Schema({ timestamps: true })
+export class Review {
   @Prop({ type: Types.ObjectId, ref: 'Product', required: true })
   product: Types.ObjectId;
 
-  @Prop({ required: true })
-  comment: string;
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  user: Types.ObjectId;
 
   @Prop({ required: true, min: 1, max: 5 })
-  rating: number; // Rating between 1 and 5
+  rating: number;
 
-  @Prop({ type: [String], required: false })
-  images: string[]; // Array of image URLs/paths
+  @Prop({ trim: true })
+  comment?: string;
 
-  @Prop({ default: Date.now })
-  createdAt: Date;
+  @Prop({ type: [String], default: [] })
+  images: string[];
 }
 
 export const ReviewSchema = SchemaFactory.createForClass(Review);
+
+// One review per user per product
+ReviewSchema.index({ product: 1, user: 1 }, { unique: true });

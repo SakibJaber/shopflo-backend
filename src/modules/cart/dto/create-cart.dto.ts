@@ -23,7 +23,7 @@ export class SizeQuantityDto {
 export class VariantQuantityDto {
   @IsMongoId()
   @IsNotEmpty()
-  variant: string; // This is the variant ID (color variant)
+  variant: string;
 
   @IsArray()
   @ValidateNested({ each: true })
@@ -54,18 +54,7 @@ export class AddDesignToCartDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => VariantQuantityDto)
-  variantQuantities: VariantQuantityDto[]; // Changed from single variant to array
-
-  @IsOptional()
-  @IsBoolean()
-  isSelected?: boolean;
-}
-export class UpdateCartItemDto {
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => VariantQuantityDto)
-  variantQuantities?: VariantQuantityDto[];
+  variantQuantities: VariantQuantityDto[];
 
   @IsOptional()
   @IsBoolean()

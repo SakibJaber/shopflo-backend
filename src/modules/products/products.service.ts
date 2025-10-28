@@ -169,118 +169,106 @@ export class ProductService {
     const filter: any = {};
 
     try {
-      // Apply search filter
+      // Build filter conditions separately
+      const conditions: any[] = [];
+
+      // Search condition
       if (search) {
-        filter.$or = [
-          { productName: { $regex: search, $options: 'i' } },
-          { description: { $regex: search, $options: 'i' } },
-          { shortDescription: { $regex: search, $options: 'i' } },
-        ];
+        conditions.push({
+          $or: [
+            { productName: { $regex: search, $options: 'i' } },
+            { description: { $regex: search, $options: 'i' } },
+            { shortDescription: { $regex: search, $options: 'i' } },
+          ],
+        });
       }
 
-      // Apply category filter - handle both string and ObjectId
+      // Category condition
       if (category) {
         if (!Types.ObjectId.isValid(category)) {
           throw new BadRequestException('Invalid category ID');
         }
-
-        // Handle both string and ObjectId storage in database
-        filter.$or = [
-          { category: category }, // Match as string
-          { category: new Types.ObjectId(category) }, // Match as ObjectId
-        ];
+        conditions.push({
+          $or: [
+            { category: category },
+            { category: new Types.ObjectId(category) },
+          ],
+        });
       }
 
-      // Apply subcategory filter - handle both string and ObjectId
+      // Subcategory condition
       if (subcategory) {
         if (!Types.ObjectId.isValid(subcategory)) {
           throw new BadRequestException('Invalid subcategory ID');
         }
-
-        // Handle both string and ObjectId storage in database
-        filter.$or = [
-          ...(filter.$or || []),
-          { subcategory: subcategory }, // Match as string
-          { subcategory: new Types.ObjectId(subcategory) }, // Match as ObjectId
-        ];
+        conditions.push({
+          $or: [
+            { subcategory: subcategory },
+            { subcategory: new Types.ObjectId(subcategory) },
+          ],
+        });
       }
 
-      // Apply brand filter
+      // Brand condition
       if (brand) {
         if (Array.isArray(brand)) {
-          // Handle multiple brands as array
-          const brandFilters = brand
-            .map((b) => {
-              if (!Types.ObjectId.isValid(b)) {
-                throw new BadRequestException('Invalid brand ID');
-              }
-              return [{ brand: b }, { brand: new Types.ObjectId(b) }];
-            })
-            .flat();
-
-          filter.$or = [...(filter.$or || []), { $or: brandFilters }];
+          const brandConditions = brand.map((b) => ({
+            $or: [{ brand: b }, { brand: new Types.ObjectId(b) }],
+          }));
+          conditions.push({ $or: brandConditions });
         } else {
-          // Handle single brand
           if (!Types.ObjectId.isValid(brand)) {
             throw new BadRequestException('Invalid brand ID');
           }
-          filter.$or = [
-            ...(filter.$or || []),
-            { brand: brand },
-            { brand: new Types.ObjectId(brand) },
-          ];
+          conditions.push({
+            $or: [{ brand: brand }, { brand: new Types.ObjectId(brand) }],
+          });
         }
       }
 
-      // Apply color filter (search in variants)
+      // Color filter (search in variants)
       if (color) {
         if (Array.isArray(color)) {
-          // Handle multiple colors
           const colorObjectIds = color.map((c) => {
             if (!Types.ObjectId.isValid(c)) {
               throw new BadRequestException('Invalid color ID');
             }
             return new Types.ObjectId(c);
           });
-          filter['variants.color'] = { $in: colorObjectIds };
+          conditions.push({ 'variants.color': { $in: colorObjectIds } });
         } else {
-          // Handle single color
           if (!Types.ObjectId.isValid(color)) {
             throw new BadRequestException('Invalid color ID');
           }
-          filter['variants.color'] = new Types.ObjectId(color);
+          conditions.push({ 'variants.color': new Types.ObjectId(color) });
         }
       }
 
-      // Apply size filter (search in variants)
+      // Size filter (search in variants)
       if (size) {
         if (Array.isArray(size)) {
-          // Handle multiple sizes
           const sizeObjectIds = size.map((s) => {
             if (!Types.ObjectId.isValid(s)) {
               throw new BadRequestException('Invalid size ID');
             }
             return new Types.ObjectId(s);
           });
-          filter['variants.size'] = { $in: sizeObjectIds };
+          conditions.push({ 'variants.size': { $in: sizeObjectIds } });
         } else {
-          // Handle single size
           if (!Types.ObjectId.isValid(size)) {
             throw new BadRequestException('Invalid size ID');
           }
-          filter['variants.size'] = new Types.ObjectId(size);
+          conditions.push({ 'variants.size': new Types.ObjectId(size) });
         }
       }
 
-      // Initialize price filter object
+      // Price filter
       const priceFilter: any = {};
 
-      // Handle price range format like "1265-5456"
       if (price) {
         const priceRange = price
           .split('-')
           .map((p: string) => parseInt(p.trim()));
-
         if (
           priceRange.length === 2 &&
           !isNaN(priceRange[0]) &&
@@ -291,17 +279,11 @@ export class ProductService {
               'Minimum price cannot be greater than maximum price',
             );
           }
-
           priceFilter.$gte = priceRange[0];
           priceFilter.$lte = priceRange[1];
-        } else {
-          throw new BadRequestException(
-            'Invalid price range format. Use format: minPrice-maxPrice (e.g., 1265-5456)',
-          );
         }
       }
 
-      // Handle separate minPrice and maxPrice parameters (can be used with or without price range)
       if (minPrice) {
         const min = parseInt(minPrice);
         if (isNaN(min) || min < 0) {
@@ -322,30 +304,19 @@ export class ProductService {
         priceFilter.$lte = max;
       }
 
-      // Validate that minPrice is not greater than maxPrice when both are provided
-      if (
-        priceFilter.$gte &&
-        priceFilter.$lte &&
-        priceFilter.$gte > priceFilter.$lte
-      ) {
-        throw new BadRequestException(
-          'minPrice cannot be greater than maxPrice',
-        );
-      }
-
-      // Apply price filter if any price conditions were set
       if (Object.keys(priceFilter).length > 0) {
-        filter.discountedPrice = priceFilter;
+        conditions.push({ discountedPrice: priceFilter });
       }
 
-      // console.log('Final filter object:', JSON.stringify(filter, null, 2));
-
+      // Combine all conditions with $and
+      if (conditions.length > 0) {
+        filter.$and = conditions;
+      }
+      
       // Handle sorting
       const sortOptions: any = {};
       if (sortBy) {
         const sortOrder = order === 'asc' ? 1 : -1;
-
-        // Map common sort fields to actual database fields
         const sortFieldMap: { [key: string]: string } = {
           title: 'productName',
           name: 'productName',
@@ -353,11 +324,10 @@ export class ProductService {
           createdAt: 'createdAt',
           updatedAt: 'updatedAt',
         };
-
         const actualSortField = sortFieldMap[sortBy] || sortBy;
         sortOptions[actualSortField] = sortOrder;
       } else {
-        sortOptions.createdAt = -1; // Default sort
+        sortOptions.createdAt = -1;
       }
 
       const [data, total] = await Promise.all([
@@ -368,6 +338,7 @@ export class ProductService {
           .populate('brand', 'brandName brandLogo')
           .populate('variants.color', 'name hexValue')
           .populate('variants.size', 'name')
+          .sort(sortOptions)
           .skip(skip)
           .limit(limit)
           .exec(),
@@ -387,6 +358,7 @@ export class ProductService {
         },
       };
     } catch (error) {
+      console.error('Filter error:', error);
       throw new BadRequestException(
         error.message || 'Failed to fetch products',
       );
@@ -652,29 +624,63 @@ export class ProductService {
   }
 
   async getPopularProducts(query: any) {
-    const { page = 1, limit = 10 } = query;
+    const { page = 1, limit = 10, sortBy = 'salesCount' } = query;
     const skip = (page - 1) * limit;
 
     try {
-      // First, try to find products with salesCount > 0
-      let [data, total] = await Promise.all([
+      // Define sorting options based on sortBy parameter
+      const sortOptions: any = {};
+
+      switch (sortBy) {
+        case 'salesCount':
+          sortOptions.salesCount = -1;
+          sortOptions.viewCount = -1;
+          sortOptions.createdAt = -1;
+          break;
+        case 'viewCount':
+          sortOptions.viewCount = -1;
+          sortOptions.salesCount = -1;
+          sortOptions.createdAt = -1;
+          break;
+        case 'rating':
+          sortOptions.rating = -1;
+          sortOptions.reviewCount = -1;
+          sortOptions.createdAt = -1;
+          break;
+        default:
+          sortOptions.salesCount = -1;
+          sortOptions.viewCount = -1;
+          sortOptions.createdAt = -1;
+      }
+
+      // Build filter to get products with engagement
+      const filter: any = {
+        $or: [
+          { salesCount: { $gt: 0 } },
+          { viewCount: { $gt: 10 } },
+          { rating: { $gt: 3 } },
+        ],
+      };
+
+      const [data, total] = await Promise.all([
         this.productModel
-          .find({ salesCount: { $gt: 0 } })
+          .find(filter)
           .populate('category', 'name')
           .populate('subcategory', 'name')
           .populate('brand', 'brandName brandLogo')
           .populate('variants.color', 'name hexValue')
           .populate('variants.size', 'name')
-          .sort({ salesCount: -1, viewCount: -1 })
+          .sort(sortOptions)
           .skip(skip)
           .limit(limit)
+          .lean()
           .exec(),
-        this.productModel.countDocuments({ salesCount: { $gt: 0 } }),
+        this.productModel.countDocuments(filter),
       ]);
 
-      // If no products with sales, get the most recently added products as fallback
+      // If no popular products found, get recent products as fallback
       if (data.length === 0) {
-        [data, total] = await Promise.all([
+        const [fallbackData, fallbackTotal] = await Promise.all([
           this.productModel
             .find({})
             .populate('category', 'name')
@@ -685,9 +691,24 @@ export class ProductService {
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
+            .lean()
             .exec(),
           this.productModel.countDocuments({}),
         ]);
+
+        return {
+          success: true,
+          statusCode: 200,
+          message: 'Popular products fetched successfully',
+          data: fallbackData,
+          meta: {
+            total: fallbackTotal,
+            page: Number(page),
+            limit: Number(limit),
+            totalPages: Math.ceil(fallbackTotal / limit),
+            isFallback: true,
+          },
+        };
       }
 
       return {
@@ -700,6 +721,7 @@ export class ProductService {
           page: Number(page),
           limit: Number(limit),
           totalPages: Math.ceil(total / limit),
+          isFallback: false,
         },
       };
     } catch (error) {
@@ -711,60 +733,116 @@ export class ProductService {
   }
 
   async getRelatedProducts(productId: string, query: any) {
-    const { page = 1, limit = 4 } = query;
+    const { page = 1, limit = 8 } = query;
     const skip = (page - 1) * limit;
 
     try {
-      // First, get the current product with minimal population to avoid circular references
+      // Validate product ID
+      if (!Types.ObjectId.isValid(productId)) {
+        throw new BadRequestException('Invalid product ID');
+      }
+
+      // Get the current product
       const currentProduct = await this.productModel
-        .findById(productId, 'category subcategory brand')
-        .lean();
+        .findById(productId)
+        .select('category subcategory brand')
+        .lean()
+        .exec();
 
       if (!currentProduct) {
         throw new NotFoundException('Product not found');
       }
 
-      // Extract IDs, handling both ObjectId and populated objects
-      const getReferenceId = (ref: any) => {
-        if (!ref) return null;
-        return ref._id ? ref._id.toString() : ref.toString();
+      // Build aggregation pipeline for related products
+      const pipeline: any[] = [
+        {
+          $match: {
+            _id: { $ne: new Types.ObjectId(productId) },
+          },
+        },
+      ];
+
+      // Add scoring based on matching fields
+      const categoryId = currentProduct.category?.toString();
+      const subcategoryId = currentProduct.subcategory?.toString();
+      const brandId = currentProduct.brand?.toString();
+
+      // Create a relevance score
+      const addFieldsStage: any = {
+        $addFields: {
+          relevanceScore: {
+            $add: [
+              // Same subcategory gets highest score
+              {
+                $cond: [
+                  {
+                    $eq: [{ $toString: '$subcategory' }, subcategoryId || ''],
+                  },
+                  3,
+                  0,
+                ],
+              },
+              // Same category gets medium score
+              {
+                $cond: [
+                  { $eq: [{ $toString: '$category' }, categoryId || ''] },
+                  2,
+                  0,
+                ],
+              },
+              // Same brand gets lower score
+              {
+                $cond: [
+                  { $eq: [{ $toString: '$brand' }, brandId || ''] },
+                  1,
+                  0,
+                ],
+              },
+            ],
+          },
+        },
       };
 
-      const categoryId = getReferenceId(currentProduct.category);
-      const subcategoryId = getReferenceId(currentProduct.subcategory);
-      const brandId = getReferenceId(currentProduct.brand);
+      pipeline.push(addFieldsStage);
 
-      // Build the filter for related products
-      const filter: any = {
-        _id: { $ne: new Types.ObjectId(productId) }, // Exclude current product
-      };
+      // Sort by relevance score and engagement metrics
+      pipeline.push({
+        $sort: {
+          relevanceScore: -1,
+          salesCount: -1,
+          viewCount: -1,
+          createdAt: -1,
+        },
+      });
 
-      // Define the type for filter conditions
-      type FilterCondition = {
-        category?: Types.ObjectId;
-        subcategory?: Types.ObjectId;
-        brand?: Types.ObjectId;
-      };
-      
-      // Add conditions for category, subcategory, or brand if they exist
-      const orConditions: FilterCondition[] = [];
-      
-      if (categoryId) {
-        orConditions.push({ category: new Types.ObjectId(categoryId) });
-      }
-      
-      if (subcategoryId) {
-        orConditions.push({ subcategory: new Types.ObjectId(subcategoryId) });
-      }
-      
-      if (brandId) {
-        orConditions.push({ brand: new Types.ObjectId(brandId) });
-      }
+      // Add pagination
+      pipeline.push({ $skip: skip });
+      pipeline.push({ $limit: limit });
 
-      // If no valid conditions, fall back to any product (except current one)
-      if (orConditions.length === 0) {
-        // Just get any other products
-        const [data, total] = await Promise.all([
+      // Execute aggregation
+      const data = await this.productModel.aggregate(pipeline).exec();
+
+      // Populate references
+      const populatedData = await this.productModel.populate(data, [
+        { path: 'category', select: 'name' },
+        { path: 'subcategory', select: 'name' },
+        { path: 'brand', select: 'brandName brandLogo' },
+        { path: 'variants.color', select: 'name hexValue' },
+        { path: 'variants.size', select: 'name' },
+      ]);
+
+      // Count total related products
+      const countPipeline = pipeline.filter(
+        (stage) => !('$skip' in stage) && !('$limit' in stage),
+      );
+      const countResult = await this.productModel
+        .aggregate([...countPipeline, { $count: 'total' }])
+        .exec();
+      const total = countResult.length > 0 ? countResult[0].total : 0;
+
+      // If no related products, get random products as fallback
+      if (populatedData.length === 0) {
+        const [fallbackData, fallbackTotal] = await Promise.all([
           this.productModel
             .find({ _id: { $ne: new Types.ObjectId(productId) } })
             .populate('category', 'name')
@@ -772,58 +850,51 @@ export class ProductService {
             .populate('brand', 'brandName brandLogo')
             .populate('variants.color', 'name hexValue')
             .populate('variants.size', 'name')
-            .sort({ createdAt: -1 }) // Sort by newest first as fallback
+            .sort({ createdAt: -1 })
             .limit(limit)
             .skip(skip)
+            .lean()
             .exec(),
-          this.productModel.countDocuments({ _id: { $ne: new Types.ObjectId(productId) } }),
+          this.productModel.countDocuments({
+            _id: { $ne: new Types.ObjectId(productId) },
+          }),
         ]);
 
         return {
           success: true,
           statusCode: 200,
           message: 'Related products fetched successfully',
-          data,
+          data: fallbackData,
           meta: {
-            total,
+            total: fallbackTotal,
             page: Number(page),
             limit: Number(limit),
-            totalPages: Math.ceil(total / limit),
+            totalPages: Math.ceil(fallbackTotal / limit),
+            isFallback: true,
           },
         };
       }
-
-      filter.$or = orConditions;
-
-      const [data, total] = await Promise.all([
-        this.productModel
-          .find(filter)
-          .populate('category', 'name')
-          .populate('subcategory', 'name')
-          .populate('brand', 'brandName brandLogo')
-          .populate('variants.color', 'name hexValue')
-          .populate('variants.size', 'name')
-          .sort({ salesCount: -1, viewCount: -1, createdAt: -1 })
-          .skip(skip)
-          .limit(limit)
-          .exec(),
-        this.productModel.countDocuments(filter),
-      ]);
 
       return {
         success: true,
         statusCode: 200,
         message: 'Related products fetched successfully',
-        data,
+        data: populatedData,
         meta: {
           total,
           page: Number(page),
           limit: Number(limit),
           totalPages: Math.ceil(total / limit),
+          isFallback: false,
         },
       };
     } catch (error) {
       console.error('Error in getRelatedProducts:', error);
+
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
       throw new BadRequestException(
         error.message || 'Failed to fetch related products',
       );

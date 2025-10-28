@@ -1,9 +1,13 @@
+import { Type } from 'class-transformer';
 import {
   IsString,
   IsNotEmpty,
   IsArray,
   IsOptional,
   IsMongoId,
+  IsInt,
+  Max,
+  Min,
 } from 'class-validator';
 
 export class CreateReviewDto {
@@ -21,6 +25,9 @@ export class CreateReviewDto {
   @IsArray()
   images?: string[]; // Array of image URLs
 
-  @IsNotEmpty()
-  rating: number; // Rating between 1 and 5
+  @Type(() => Number)        
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  rating: number;
 }
