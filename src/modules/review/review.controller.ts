@@ -57,7 +57,7 @@ export class ReviewController {
     const [items, total] = await Promise.all([
       this.reviewService['reviewModel']
         .find({ product: productId })
-        .populate('user', 'name firstName lastName')
+        .populate('user', 'name firstName lastName imageUrl')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit))
@@ -94,7 +94,7 @@ export class ReviewController {
   @Delete(':id')
   @Roles(Role.USER, Role.ADMIN)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  remove(@Param('id') id: string) {
-    return this.reviewService.remove(id);
+  remove(@Param('id') id: string, @Req() req: any) {
+    return this.reviewService.remove(id, req.user);
   }
 }

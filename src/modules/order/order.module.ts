@@ -1,31 +1,42 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Order, OrderSchema } from './schema/order.schema';
-import { OrderController } from './order.controller';
+import { OrdersController } from './order.controller';
 import { OrderService } from './order.service';
-import { Cart, CartSchema } from '../cart/schema/cart.schema';
-import { Product, ProductSchema } from '../products/schema/product.schema';
-import { Design, DesignSchema } from '../designs/schema/design.schema';
-import { Size, SizeSchema } from '../sizes/schema/size.schema';
-import { Color, ColorSchema } from '../color/schema/color.schema';
 import { Address, AddressSchema } from 'src/modules/address/schema/address.schema';
+import { Cart, CartSchema } from 'src/modules/cart/schema/cart.schema';
+import { User, UserSchema } from 'src/modules/users/schema/user.schema';
+import { Product, ProductSchema } from 'src/modules/products/schema/product.schema';
+import { Design, DesignSchema } from 'src/modules/designs/schema/design.schema';
+import * as express from 'express';
+import { CartModule } from 'src/modules/cart/cart.module';
 import { NotificationsModule } from 'src/modules/notifications/notifications.module';
+import { CheckoutController } from 'src/modules/order/payment/checkout.controller';
+import { StripeWebhookController } from 'src/modules/order/payment/stripe-webhook.controller';
+import { StripeService } from 'src/modules/order/payment/stripe.service';
+
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Order.name, schema: OrderSchema },
-      { name: Cart.name, schema: CartSchema },
       { name: Address.name, schema: AddressSchema },
+      { name: Cart.name, schema: CartSchema },
+      { name: User.name, schema: UserSchema },
       { name: Product.name, schema: ProductSchema },
       { name: Design.name, schema: DesignSchema },
-      { name: Size.name, schema: SizeSchema },
-      { name: Color.name, schema: ColorSchema },
     ]),
-    NotificationsModule, 
+    CartModule,
+    NotificationsModule,
   ],
-  controllers: [OrderController],
-  providers: [OrderService],
-  exports: [OrderService],
+  controllers: [OrdersController, StripeWebhookController, CheckoutController],
+  providers: [OrderService, StripeService],
+  exports: [OrderService, StripeService],
 })
-export class OrderModule {}
+export class OrderModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(express.raw({ type: 'application/json' }))
+      .forRoutes({ path: 'webhook/stripe', method: RequestMethod.POST });
+  }
+}

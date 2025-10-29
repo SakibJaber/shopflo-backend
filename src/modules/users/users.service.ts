@@ -1,23 +1,39 @@
 import {
   BadRequestException,
+  ForbiddenException,
+  HttpException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { UserStatus } from 'src/common/enum/user.status.enum';
 import { User, UserDocument } from 'src/modules/users/schema/user.schema';
 import { NotificationPriority } from '../notifications/schema/notification.schema';
 import { NotificationService } from 'src/modules/notifications/notifications.service';
 import { NotificationType } from 'src/common/enum/notification_type.enum';
 import { Role } from 'src/common/enum/user_role.enum';
+import { UpdateUserDto } from 'src/modules/users/dto/update-user.dto';
+import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     private notificationService: NotificationService,
+    private fileUploadService: FileUploadService,
   ) {}
+
+  private assertCanMutate(user: UserDocument, currentUser?: any) {
+    if (!currentUser) return;
+    if (currentUser.role === Role.ADMIN) return;
+
+    const userId = (user._id as Types.ObjectId).toString();
+    if (userId !== currentUser.userId) {
+      throw new ForbiddenException('You are not allowed to modify this user');
+    }
+  }
 
   async findByEmail(email: string) {
     return await this.userModel.findOne({ email }).exec();
@@ -76,13 +92,91 @@ export class UsersService {
     return await this.userModel.findByIdAndUpdate(id, { refreshToken });
   }
 
-  async updateUser(id: string, data: Partial<User>) {
-    const user = await this.userModel.findById(id);
-    if (!user) throw new NotFoundException('User not found');
+  async updateUser(
+    id: string,
+    data: UpdateUserDto,
+    file?: Express.Multer.File,
+    currentUser?: any,
+  ): Promise<UserDocument> {
+    // this.assertValidObjectId(id, 'user');
 
-    Object.assign(user, data);
-    await (user as any).save();
-    return user;
+    try {
+      const user = await this.userModel.findById(id);
+      if (!user) throw new NotFoundException('User not found');
+
+      // Ownership / admin check
+      this.assertCanMutate(user, currentUser);
+
+      // Upload new image if provided
+      if (file) {
+        // Delete old image if exists
+        if (user.imageUrl) {
+          try {
+            await this.fileUploadService.deleteFile(user.imageUrl);
+          } catch (deleteError) {
+            console.error('Failed to delete old user image:', deleteError);
+            // Continue with upload even if deletion fails
+          }
+        }
+
+        // Upload new image
+        const imageUrl = await this.fileUploadService.handleUpload(file);
+        user.imageUrl = imageUrl;
+      }
+
+      // Update other fields
+      const allowedFields = ['firstName', 'lastName', 'phone'];
+      for (const field of allowedFields) {
+        if (data[field] !== undefined) {
+          user[field] = data[field];
+        }
+      }
+
+      // Only admin can update role and status
+      if (currentUser?.role === Role.ADMIN) {
+        if (data.role !== undefined) user.role = data.role;
+        if (data.status !== undefined) user.status = data.status;
+      }
+
+      const updatedUser = await user.save();
+
+      // Notify admins about user profile update (if updated by admin)
+      if (currentUser?.role === Role.ADMIN && currentUser.userId !== id) {
+        try {
+          const adminUsers = await this.getAdminUsers();
+          const adminIds = adminUsers
+            .map((a) => (a._id as Types.ObjectId).toString())
+            .filter(Boolean) as string[];
+
+          for (const adminId of adminIds) {
+            if (adminId === currentUser.userId) continue; // Skip the current admin
+
+            await this.notificationService.createNotification({
+              recipient: adminId,
+              title: 'User Profile Updated',
+              message: `User ${user.firstName} ${user.lastName}'s profile has been updated by an administrator.`,
+              type: NotificationType.SYSTEM_ALERT,
+              priority: NotificationPriority.LOW,
+              metadata: {
+                userId: id,
+                updatedBy: currentUser.userId,
+                updatedFields: Object.keys(data),
+              },
+              relatedId: id,
+              relatedModel: 'User',
+            });
+          }
+        } catch (notifyErr) {
+          console.error('Failed to send user update notification:', notifyErr);
+        }
+      }
+
+      return updatedUser;
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      console.error('Update user error:', error);
+      throw new InternalServerErrorException('Failed to update user');
+    }
   }
 
   async createUser(data: Partial<User>): Promise<User> {

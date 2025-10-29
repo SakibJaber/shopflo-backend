@@ -1,381 +1,257 @@
 import {
   Controller,
-  Get,
   Post,
-  Patch,
-  Delete,
   Body,
+  Get,
   Param,
+  Patch,
   Query,
-  UseGuards,
+  DefaultValuePipe,
+  ParseIntPipe,
   Req,
+  UseGuards,
   HttpStatus,
+  Headers,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
+import { CreateOrderDto } from './dto/create-order.dto';
 import { OrderService } from './order.service';
 import { JwtAuthGuard } from 'src/common/guards/jwt.guard';
+import { UpdateOrderStatusDto } from './dto/update-order.dto';
+import { ConfigService } from '@nestjs/config';
 import { RolesGuard } from 'src/common/guards/roles.guard';
-import { Roles } from 'src/common/decorator/roles.decorator';
 import { Role } from 'src/common/enum/user_role.enum';
-import {
-  CreateOrderDto,
-  UpdateOrderStatusDto,
-  UpdatePaymentStatusDto,
-  UpdateOrderDto,
-} from './dto/create-order.dto';
+import { PaymentMethod, PaymentStatus } from 'src/common/enum/payment.enum';
+import { CartService } from 'src/modules/cart/cart.service';
+import { v4 as uuidv4 } from 'uuid';
+import { OrderStatus } from 'src/common/enum/order_status.enum';
+import { Roles } from 'src/common/decorator/roles.decorator';
+import { StripeService } from 'src/modules/order/payment/stripe.service';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard)
-export class OrderController {
-  constructor(private readonly orderService: OrderService) {}
+export class OrdersController {
+  constructor(
+    private readonly ordersService: OrderService,
+    private readonly stripeService: StripeService,
+    private readonly configService: ConfigService,
+    private readonly cartService: CartService,
+  ) {}
 
-  // ==================== CREATE ORDER ====================
   @Post()
-  async createOrder(@Body() createOrderDto: CreateOrderDto, @Req() req) {
-    const userId = req.user.userId;
-
-    try {
-      const order = await this.orderService.createOrder(userId, createOrderDto);
-      return {
-        success: true,
-        statusCode: HttpStatus.CREATED,
-        message: 'Order created successfully',
-        data: order,
-      };
-    } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      ) {
-        return {
-          success: false,
-          statusCode: HttpStatus.BAD_REQUEST,
-          message: error.message,
-          data: null,
-        };
-      }
-      return {
-        success: false,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to create order',
-        data: null,
-      };
-    }
-  }
-
-  // ==================== CREATE ORDER FROM CART ====================
-  @Post('from-cart')
-  async createOrderFromCart(
+  async placeOrder(
+    @Req() req,
     @Body() createOrderDto: CreateOrderDto,
-    @Req() req,
+    @Headers('Idempotency-Key') headerKey: string,
   ) {
     const userId = req.user.userId;
 
-    try {
-      const order = await this.orderService.createOrderFromCart(
-        userId,
-        createOrderDto,
-      );
-      return {
-        success: true,
-        statusCode: HttpStatus.CREATED,
-        message: 'Order created from cart successfully',
-        data: order,
-      };
-    } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      ) {
-        return {
-          success: false,
-          statusCode: HttpStatus.BAD_REQUEST,
-          message: error.message,
-          data: null,
-        };
-      }
-      return {
-        success: false,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to create order from cart',
-        data: null,
-      };
+    // Validate payment method
+    if (createOrderDto.paymentMethod !== PaymentMethod.STRIPE) {
+      throw new BadRequestException('Only Stripe payments are accepted');
     }
+
+    // Generate idempotency key
+    const idempotencyKey = headerKey || createOrderDto.idempotencyKey || uuidv4();
+    createOrderDto.idempotencyKey = idempotencyKey;
+
+    // Create order
+    const order = await this.ordersService.create(userId, createOrderDto);
+
+    // Create Stripe checkout session
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL');
+    const successUrl = `${frontendUrl}/checkout/success?orderId=${order._id}`;
+    const cancelUrl = `${frontendUrl}/checkout/cancel?orderId=${order._id}`;
+
+    // Prepare line items for Stripe
+    const lineItems = order.items.flatMap(item =>
+      item.variantQuantities.flatMap(vq =>
+        vq.sizeQuantities.map(sq => ({
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: (item as any).product?.productName || 'Product',
+              description: `Size: ${sq.size} - Quantity: ${sq.quantity}`,
+              images: item.isDesignItem && (item as any).design?.frontImage 
+                ? [(item as any).design.frontImage] 
+                : [(item as any).product?.thumbnail],
+            },
+            unit_amount: Math.round(sq.price * 100),
+          },
+          quantity: sq.quantity,
+        }))
+      )
+    );
+
+    const session = await this.stripeService.createCheckoutSession({
+      orderId: order._id.toString(),
+      lineItems,
+      customerEmail: req.user.email,
+      successUrl,
+      cancelUrl,
+    });
+
+    return {
+      success: true,
+      statusCode: HttpStatus.CREATED,
+      message: 'Order placed successfully. Payment required.',
+      data: {
+        order,
+        payment: {
+          type: 'stripe',
+          sessionId: session.id,
+          url: session.url,
+        },
+      },
+    };
   }
 
-  // ==================== GET USER ORDERS ====================
   @Get()
-  async getOrders(
+  @Roles(Role.ADMIN)
+  @UseGuards(RolesGuard)
+  async findAll(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+  ) {
+    let orderStatus: OrderStatus | undefined;
+    if (status) {
+      if (!Object.values(OrderStatus).includes(status as OrderStatus)) {
+        throw new BadRequestException(`Invalid status value: ${status}`);
+      }
+      orderStatus = status as OrderStatus;
+    }
+
+    const result = await this.ordersService.findAll(page, limit, search, orderStatus);
+    return {
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'Orders fetched successfully',
+      data: result.data,
+      meta: result.meta,
+    };
+  }
+
+  @Get('my-orders')
+  async getUserOrders(
     @Req() req,
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 10,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
   ) {
     const userId = req.user.userId;
-
-    try {
-      const result = await this.orderService.getOrders(userId, page, limit);
-      return {
-        success: true,
-        statusCode: HttpStatus.OK,
-        message: 'Orders fetched successfully',
-        data: result,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to fetch orders',
-        data: null,
-      };
-    }
+    const result = await this.ordersService.getOrdersByUser(userId, page, limit);
+    return {
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'User orders fetched successfully',
+      data: result.data,
+      meta: result.meta,
+    };
   }
 
-  // ==================== GET ORDER BY ID ====================
-  @Get(':id')
-  async getOrderById(@Param('id') id: string, @Req() req) {
+  @Get('summary')
+  async getOrderSummary(@Req() req) {
     const userId = req.user.userId;
-
-    try {
-      const order = await this.orderService.getOrderById(userId, id);
-      return {
-        success: true,
-        statusCode: HttpStatus.OK,
-        message: 'Order fetched successfully',
-        data: order,
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        return {
-          success: false,
-          statusCode: HttpStatus.NOT_FOUND,
-          message: error.message,
-          data: null,
-        };
-      }
-      return {
-        success: false,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to fetch order',
-        data: null,
-      };
-    }
+    const summary = await this.ordersService.getOrderSummary(userId);
+    return {
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'Order summary fetched successfully',
+      data: summary,
+    };
   }
 
-  // ==================== UPDATE ORDER STATUS ====================
+  @Get(':id')
+  async findOne(@Param('id') id: string) {
+    const order = await this.ordersService.findOne(id);
+    return {
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'Order fetched successfully',
+      data: order,
+    };
+  }
+
   @Patch(':id/status')
-  async updateOrderStatus(
+  @Roles(Role.ADMIN)
+  @UseGuards(RolesGuard)
+  async updateStatus(
     @Param('id') id: string,
     @Body() updateOrderStatusDto: UpdateOrderStatusDto,
-    @Req() req,
   ) {
+    const allowedStatuses = [
+      OrderStatus.PENDING,
+      OrderStatus.CONFIRMED,
+      OrderStatus.PROCESSING,
+      OrderStatus.SHIPPED,
+      OrderStatus.DELIVERED,
+      OrderStatus.CANCELLED,
+    ];
+
+    if (!allowedStatuses.includes(updateOrderStatusDto.status)) {
+      throw new BadRequestException('Invalid order status');
+    }
+
+    const order = await this.ordersService.updateStatus(id, updateOrderStatusDto);
+    return {
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'Order status updated successfully',
+      data: order,
+    };
+  }
+
+  @Post(':id/retry-payment')
+  async retryPayment(@Req() req, @Param('id') orderId: string) {
     const userId = req.user.userId;
+    const order = await this.ordersService.findOne(orderId);
 
-    try {
-      const order = await this.orderService.updateOrderStatus(
-        userId,
-        id,
-        updateOrderStatusDto,
-      );
-      return {
-        success: true,
-        statusCode: HttpStatus.OK,
-        message: 'Order status updated successfully',
-        data: order,
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        return {
-          success: false,
-          statusCode: HttpStatus.NOT_FOUND,
-          message: error.message,
-          data: null,
-        };
-      }
-      if (error instanceof BadRequestException) {
-        return {
-          success: false,
-          statusCode: HttpStatus.BAD_REQUEST,
-          message: error.message,
-          data: null,
-        };
-      }
-      return {
-        success: false,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to update order status',
-        data: null,
-      };
+    const ownerId = (order.user as any)?._id?.toString?.() ?? order.user.toString();
+    if (ownerId !== userId) throw new NotFoundException('Order not found');
+
+    if (order.paymentStatus === PaymentStatus.SUCCEEDED) {
+      throw new ConflictException('Payment already succeeded');
     }
-  }
 
-  // ==================== UPDATE PAYMENT STATUS ====================
-  @Patch(':id/payment-status')
-  async updatePaymentStatus(
-    @Param('id') id: string,
-    @Body() updatePaymentStatusDto: UpdatePaymentStatusDto,
-    @Req() req,
-  ) {
-    const userId = req.user.userId;
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL');
+    const successUrl = `${frontendUrl}/checkout/success?orderId=${order._id}`;
+    const cancelUrl = `${frontendUrl}/checkout/cancel?orderId=${order._id}`;
 
-    try {
-      const order = await this.orderService.updatePaymentStatus(
-        userId,
-        id,
-        updatePaymentStatusDto,
-      );
-      return {
-        success: true,
-        statusCode: HttpStatus.OK,
-        message: 'Payment status updated successfully',
-        data: order,
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        return {
-          success: false,
-          statusCode: HttpStatus.NOT_FOUND,
-          message: error.message,
-          data: null,
-        };
-      }
-      return {
-        success: false,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to update payment status',
-        data: null,
-      };
-    }
-  }
+    const lineItems = order.items.flatMap(item =>
+      item.variantQuantities.flatMap(vq =>
+        vq.sizeQuantities.map(sq => ({
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: (item as any).product?.productName || 'Product',
+              description: `Size: ${sq.size} - Quantity: ${sq.quantity}`,
+            },
+            unit_amount: Math.round(sq.price * 100),
+          },
+          quantity: sq.quantity,
+        }))
+      )
+    );
 
-  // ==================== CANCEL ORDER ====================
-  @Delete(':id/cancel')
-  async cancelOrder(@Param('id') id: string, @Req() req) {
-    const userId = req.user.userId;
+    const session = await this.stripeService.createCheckoutSession({
+      orderId: order._id.toString(),
+      lineItems,
+      customerEmail: req.user.email,
+      successUrl,
+      cancelUrl,
+    });
 
-    try {
-      const order = await this.orderService.cancelOrder(userId, id);
-      return {
-        success: true,
-        statusCode: HttpStatus.OK,
-        message: 'Order cancelled successfully',
-        data: order,
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        return {
-          success: false,
-          statusCode: HttpStatus.NOT_FOUND,
-          message: error.message,
-          data: null,
-        };
-      }
-      if (error instanceof BadRequestException) {
-        return {
-          success: false,
-          statusCode: HttpStatus.BAD_REQUEST,
-          message: error.message,
-          data: null,
-        };
-      }
-      return {
-        success: false,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to cancel order',
-        data: null,
-      };
-    }
-  }
-
-  // ==================== ADMIN ROUTES ====================
-  @Get('admin/all')
-  @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
-  async getAllOrders(
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 10,
-    @Query('status') status?: string,
-    @Query('paymentStatus') paymentStatus?: string,
-    @Query('paymentMethod') paymentMethod?: string,
-  ) {
-    try {
-      const filters: any = {};
-      if (status) filters.status = status;
-      if (paymentStatus) filters.paymentStatus = paymentStatus;
-      if (paymentMethod) filters.paymentMethod = paymentMethod;
-
-      const result = await this.orderService.getAllOrders(page, limit, filters);
-      return {
-        success: true,
-        statusCode: HttpStatus.OK,
-        message: 'All orders fetched successfully',
-        data: result,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to fetch orders',
-        data: null,
-      };
-    }
-  }
-
-  @Patch('admin/:id')
-  @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
-  async adminUpdateOrder(
-    @Param('id') id: string,
-    @Body() updateOrderDto: UpdateOrderDto,
-  ) {
-    try {
-      const order = await this.orderService.adminUpdateOrder(
-        id,
-        updateOrderDto,
-      );
-      return {
-        success: true,
-        statusCode: HttpStatus.OK,
-        message: 'Order updated successfully',
-        data: order,
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        return {
-          success: false,
-          statusCode: HttpStatus.NOT_FOUND,
-          message: error.message,
-          data: null,
-        };
-      }
-      return {
-        success: false,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to update order',
-        data: null,
-      };
-    }
-  }
-
-  @Get('admin/stats')
-  @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
-  async getOrderStats() {
-    try {
-      const stats = await this.orderService.getOrderStats();
-      return {
-        success: true,
-        statusCode: HttpStatus.OK,
-        message: 'Order stats fetched successfully',
-        data: stats,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to fetch order stats',
-        data: null,
-      };
-    }
+    return {
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'Payment session created successfully',
+      data: {
+        sessionId: session.id,
+        url: session.url,
+      },
+    };
   }
 }

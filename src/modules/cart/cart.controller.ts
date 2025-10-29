@@ -63,7 +63,6 @@ export class CartController {
         userId,
         addRegularProductToCartDto,
       );
-      console.log('cart', cart);
       return {
         success: true,
         statusCode: HttpStatus.OK,

@@ -289,10 +289,6 @@ export class ReviewService {
     }
   }
 
-  /**
-   * NOTE: Your controller currently does not pass `req.user` to this method.
-   * If you want strict ownership enforcement here, pass `@Req() req` and forward `req.user`.
-   */
   async remove(id: string, user?: any) {
     try {
       this.assertValidObjectId(id, 'review');

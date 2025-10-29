@@ -328,7 +328,7 @@ export class CartService {
           validatedVariants,
         );
         cart.items[existingItemIndex].isSelected = dto.isSelected ?? false;
-        console.log('where is the error man===============>');
+        // console.log('where is the error man===============>');
       } else {
         // Create new cart item
         const newItem = {
@@ -347,11 +347,11 @@ export class CartService {
           price: product.discountedPrice,
           isDesignItem: false,
         };
-        console.log(
-          'validatedVariants=============>',
-          dto.variantQuantities,
-          product.variants,
-        );
+        // console.log(
+        //   'validatedVariants=============>',
+        //   dto.variantQuantities,
+        //   product.variants,
+        // );
 
         cart.items.push(newItem as any);
       }
@@ -864,57 +864,6 @@ export class CartService {
       }
     }
   }
-
-  // private async getCart(userId: string): Promise<any> {
-  //   const cart = await this.cartModel
-  //     .findOne({ user: new Types.ObjectId(userId), isActive: true })
-  //     .populate({
-  //       path: 'items.product',
-  //       select:
-  //         'productName brand price discountPercentage discountedPrice variants thumbnail',
-  //       populate: [
-  //         {
-  //           path: 'brand',
-  //           select: 'brandName brandLogo',
-  //         },
-  //         {
-  //           path: 'variants.color',
-  //           select: 'name hexValue',
-  //         },
-  //         {
-  //           path: 'variants.size',
-  //           select: 'name',
-  //         },
-  //       ],
-  //     })
-  //     .populate({
-  //       path: 'items.design',
-  //       select: 'designName frontImage backImage leftImage rightImage',
-  //       populate: {
-  //         path: 'baseProduct',
-  //         select:
-  //           'productName brand price discountPercentage discountedPrice variants thumbnail',
-  //         populate: [
-  //           {
-  //             path: 'brand',
-  //             select: 'brandName brandLogo',
-  //           },
-  //           {
-  //             path: 'variants.color',
-  //             select: 'name hexValue',
-  //           },
-  //           {
-  //             path: 'variants.size',
-  //             select: 'name',
-  //           },
-  //         ],
-  //       },
-  //     })
-  //     .exec();
-
-  //   if (!cart) return await this.createCart(userId);
-  //   return cart;
-  // }
 
   private async getCart(userId: string): Promise<any> {
     let cart = await this.cartModel

@@ -1,145 +1,106 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
-import { User } from 'src/modules/users/schema/user.schema';
-import { Product } from 'src/modules/products/schema/product.schema';
-import { Design } from 'src/modules/designs/schema/design.schema';
+import { OrderStatus } from 'src/common/enum/order_status.enum';
+import { PaymentMethod, PaymentStatus } from 'src/common/enum/payment.enum';
 
-import { Size } from 'src/modules/sizes/schema/size.schema';
-import { Color } from 'src/modules/color/schema/color.schema';
-import { Address } from 'src/modules/address/schema/address.schema';
+@Schema({ _id: false })
+export class OrderSizeQuantity {
+  @Prop({ type: Types.ObjectId, ref: 'Size', required: true })
+  size: Types.ObjectId;
 
-export type OrderDocument = Order & Document;
-
-export enum OrderStatus {
-  PENDING = 'pending',
-  CONFIRMED = 'confirmed',
-  PROCESSING = 'processing',
-  SHIPPED = 'shipped',
-  DELIVERED = 'delivered',
-  CANCELLED = 'cancelled',
-  REFUNDED = 'refunded',
-}
-
-export enum PaymentStatus {
-  PENDING = 'pending',
-  PAID = 'paid',
-  FAILED = 'failed',
-  REFUNDED = 'refunded',
-}
-
-export enum PaymentMethod {
-  CARD = 'card',
-  CASH_ON_DELIVERY = 'cash_on_delivery',
-  PAYPAL = 'paypal',
-  STRIPE = 'stripe',
-}
-
-@Schema()
-export class OrderItemVariantSizeQuantity {
-  @Prop({ type: Types.ObjectId, ref: 'Color', required: true })
-  variant: Types.ObjectId;
-
-  @Prop({ type: [{ 
-    size: { type: Types.ObjectId, ref: 'Size', required: true },
-    quantity: { type: Number, required: true, min: 1 },
-    price: { type: Number, required: true, min: 0 }
-  }] })
-  sizeQuantities: { size: Types.ObjectId; quantity: number; price: number }[];
-}
-
-@Schema()
-export class OrderItem {
-  @Prop({ type: Types.ObjectId, ref: Product.name, required: true })
-  product: Types.ObjectId;
-
-  @Prop({ type: Types.ObjectId, ref: Design.name, required: false })
-  design?: Types.ObjectId;
-
-  @Prop({ type: [OrderItemVariantSizeQuantity], default: [] })
-  variantQuantities: OrderItemVariantSizeQuantity[];
+  @Prop({ required: true, min: 1 })
+  quantity: number;
 
   @Prop({ required: true, min: 0 })
   price: number;
+
+  @Prop({ required: true, min: 0 })
+  sizeTotal: number;
+}
+
+@Schema({ _id: false })
+export class OrderVariantQuantity {
+  @Prop({ type: Types.ObjectId, required: true })
+  variant: Types.ObjectId;
+
+  @Prop({ type: [OrderSizeQuantity], default: [] })
+  sizeQuantities: OrderSizeQuantity[];
+
+  @Prop({ required: true, min: 0 })
+  variantTotal: number;
+}
+
+@Schema({ _id: false })
+export class OrderItem {
+  @Prop({ type: Types.ObjectId, default: () => new Types.ObjectId() })
+  _id: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Product', required: true })
+  product: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Design', required: false })
+  design?: Types.ObjectId;
+
+  @Prop({ type: [OrderVariantQuantity], default: [] })
+  variantQuantities: OrderVariantQuantity[];
+
+  @Prop({ required: true, min: 0 })
+  price: number;
+
+  @Prop({ required: true, min: 0 })
+  itemTotal: number;
 
   @Prop({ type: Object, default: {} })
   designData?: any;
 
   @Prop({ default: false })
   isDesignItem: boolean;
-
-  @Prop({ default: 0, min: 0 })
-  discount: number;
 }
 
 @Schema({ timestamps: true })
-export class Order {
-  @Prop({ type: Types.ObjectId, ref: User.name, required: true })
+export class Order extends Document {
+  declare _id: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   user: Types.ObjectId;
 
   @Prop({ type: [OrderItem], default: [] })
   items: OrderItem[];
 
-  @Prop({ type: Types.ObjectId, ref: Address.name, required: true })
-  shippingAddress: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'Address', required: true })
+  address: Types.ObjectId;
 
-  @Prop({ 
-    type: String, 
-    enum: Object.values(PaymentMethod),
-    required: true 
-  })
+  @Prop({ type: String, enum: PaymentMethod, required: true })
   paymentMethod: PaymentMethod;
 
-  @Prop({ 
-    type: String, 
-    enum: Object.values(PaymentStatus),
-    default: PaymentStatus.PENDING
-  })
+  @Prop({ type: String, enum: PaymentStatus, default: PaymentStatus.PENDING })
   paymentStatus: PaymentStatus;
 
-  @Prop({ 
-    type: String, 
-    enum: Object.values(OrderStatus),
-    default: OrderStatus.PENDING
-  })
+  @Prop({ type: String, enum: OrderStatus, default: OrderStatus.PENDING })
   status: OrderStatus;
 
-  @Prop({ type: Object, default: {} })
-  paymentResult?: any;
+  @Prop({ required: true, min: 0 })
+  subtotal: number;
 
   @Prop({ required: true, min: 0 })
-  itemsPrice: number;
+  total: number;
 
-  @Prop({ required: true, min: 0 })
-  taxPrice: number;
+  @Prop()
+  stripePaymentIntentId?: string;
 
-  @Prop({ required: true, min: 0 })
-  shippingPrice: number;
+  @Prop()
+  idempotencyKey?: string;
 
-  @Prop({ required: true, min: 0 })
-  totalPrice: number;
-
-  @Prop({ default: false })
-  isPaid: boolean;
-
-  @Prop({ type: Date })
-  paidAt?: Date;
-
-  @Prop({ default: false })
-  isDelivered: boolean;
-
-  @Prop({ type: Date })
-  deliveredAt?: Date;
-
-  @Prop({ type: String })
+  @Prop()
   trackingNumber?: string;
 
-  @Prop({ type: String })
-  shippingCarrier?: string;
-
-  @Prop({ default: true })
-  isActive: boolean;
+  @Prop({ default: Date.now })
+  orderDate: Date;
 }
 
-export const OrderItemVariantSizeQuantitySchema = SchemaFactory.createForClass(OrderItemVariantSizeQuantity);
+export const OrderSizeQuantitySchema =
+  SchemaFactory.createForClass(OrderSizeQuantity);
+export const OrderVariantQuantitySchema =
+  SchemaFactory.createForClass(OrderVariantQuantity);
 export const OrderItemSchema = SchemaFactory.createForClass(OrderItem);
 export const OrderSchema = SchemaFactory.createForClass(Order);

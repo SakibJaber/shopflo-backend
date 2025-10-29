@@ -6,7 +6,10 @@ import {
   Param,
   Patch,
   Query,
+  Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { Role } from 'src/common/enum/user_role.enum';
@@ -16,6 +19,8 @@ import { JwtAuthGuard } from 'src/common/guards/jwt.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
 import { User } from 'src/modules/users/schema/user.schema';
 import { OptionalParseArrayPipe } from 'src/common/pipes/parsearray.pipe';
+import { UseGlobalFileInterceptor } from 'src/common/decorator/globalFileInterceptor.decorator';
+import { UpdateUserDto } from 'src/modules/users/dto/update-user.dto';
 
 @Controller('users')
 export class UsersController {
@@ -123,10 +128,15 @@ export class UsersController {
     @Query('role', new OptionalParseArrayPipe()) roles?: string[],
     @Query('status', new OptionalParseArrayPipe()) statuses?: UserStatus[],
     @Query('page') page: number = 1,
-    @Query('limit') limit: number = 10
+    @Query('limit') limit: number = 10,
   ) {
     try {
-      const users = await this.usersService.findAll({ roles, statuses, page, limit });
+      const users = await this.usersService.findAll({
+        roles,
+        statuses,
+        page,
+        limit,
+      });
       return {
         success: true,
         statusCode: 200,
@@ -145,14 +155,21 @@ export class UsersController {
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.USER) // Allow admin and the user themselves (needs ownership check)
+  @Roles(Role.ADMIN, Role.USER)
+  @UseGlobalFileInterceptor({ fieldName: 'image', maxCount: 1 })
   async updateUser(
     @Param('id') id: string,
-    @Body() updateData: Partial<User>, // Consider creating a UpdateUserDto
+    @Body() updateData: UpdateUserDto,
+    @UploadedFile() file?: Express.Multer.File,
+    @Req() req?: any,
   ) {
     try {
-      // In a real app, add logic to verify a user can only update their own profile unless they are an admin
-      const updatedUser = await this.usersService.updateUser(id, updateData);
+      const updatedUser = await this.usersService.updateUser(
+        id,
+        updateData,
+        file,
+        req.user,
+      );
       return {
         success: true,
         statusCode: 200,

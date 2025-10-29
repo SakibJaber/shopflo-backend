@@ -1,19 +1,19 @@
 import {
-  IsArray,
   IsMongoId,
-  IsNotEmpty,
+  IsString,
   IsNumber,
-  IsOptional,
-  IsBoolean,
+  IsArray,
   ValidateNested,
   IsEnum,
+  IsOptional,
   Min,
-  IsString,
+  IsBoolean,
+  IsNotEmpty,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { PaymentMethod, OrderStatus, PaymentStatus } from '../schema/order.schema';
+import { PaymentMethod } from 'src/common/enum/payment_method.enum';
 
-export class OrderItemSizeQuantityDto {
+export class SizeQuantityOrderDto {
   @IsMongoId()
   @IsNotEmpty()
   size: string;
@@ -27,103 +27,58 @@ export class OrderItemSizeQuantityDto {
   price: number;
 }
 
-export class OrderItemVariantDto {
+export class VariantQuantityOrderDto {
   @IsMongoId()
   @IsNotEmpty()
   variant: string;
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => OrderItemSizeQuantityDto)
-  sizeQuantities: OrderItemSizeQuantityDto[];
+  @Type(() => SizeQuantityOrderDto)
+  sizeQuantities: SizeQuantityOrderDto[];
+
+  @IsNumber()
+  @Min(0)
+  variantTotal: number;
 }
 
-export class CreateOrderItemDto {
+export class OrderItemDto {
   @IsMongoId()
   @IsNotEmpty()
   product: string;
 
-  @IsOptional()
   @IsMongoId()
+  @IsOptional()
   design?: string;
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => OrderItemVariantDto)
-  variantQuantities: OrderItemVariantDto[];
+  @Type(() => VariantQuantityOrderDto)
+  variantQuantities: VariantQuantityOrderDto[];
 
   @IsNumber()
   @Min(0)
   price: number;
 
-  @IsOptional()
-  designData?: any;
-
-  @IsOptional()
-  @IsBoolean()
-  isDesignItem?: boolean;
-
-  @IsOptional()
   @IsNumber()
   @Min(0)
-  discount?: number;
+  itemTotal: number;
+
+  @IsBoolean()
+  isDesignItem: boolean;
+
+  @IsOptional()
+  designData?: any;
 }
 
 export class CreateOrderDto {
   @IsMongoId()
-  @IsNotEmpty()
-  shippingAddress: string;
+  addressId: string;
 
   @IsEnum(PaymentMethod)
-  @IsNotEmpty()
   paymentMethod: PaymentMethod;
 
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => CreateOrderItemDto)
-  items: CreateOrderItemDto[];
-
   @IsOptional()
   @IsString()
-  trackingNumber?: string;
-
-  @IsOptional()
-  @IsString()
-  shippingCarrier?: string;
-}
-
-export class UpdateOrderStatusDto {
-  @IsEnum(OrderStatus)
-  @IsNotEmpty()
-  status: OrderStatus;
-}
-
-export class UpdatePaymentStatusDto {
-  @IsEnum(PaymentStatus)
-  @IsNotEmpty()
-  paymentStatus: PaymentStatus;
-
-  @IsOptional()
-  paymentResult?: any;
-}
-
-export class UpdateOrderDto {
-  @IsOptional()
-  @IsEnum(OrderStatus)
-  status?: OrderStatus;
-
-  @IsOptional()
-  @IsEnum(PaymentStatus)
-  paymentStatus?: PaymentStatus;
-
-  @IsOptional()
-  @IsString()
-  trackingNumber?: string;
-
-  @IsOptional()
-  @IsString()
-  shippingCarrier?: string;
-
-  @IsOptional()
-  paymentResult?: any;
+  idempotencyKey?: string;
 }
