@@ -656,131 +656,187 @@ export class CartService {
 
     const item = cart.items[itemIndex];
 
-    // Update variant quantities if provided
-    if (dto.variantQuantities && dto.variantQuantities.length > 0) {
-      // Get product to validate new variants
-      const product = await this.productModel
-        .findById(item.product)
-        .populate('variants.color', 'name hexValue')
-        .populate('variants.size', 'name _id')
-        .exec();
+    try {
+      // If client provided variantQuantities (even an empty array), process updates/removals/adds.
+      if (dto.variantQuantities !== undefined) {
+        // Load product once for validation when adding new variants or checking sizes
+        const product = await this.productModel
+          .findById(item.product)
+          .populate('variants.color', 'name hexValue')
+          .populate('variants.size', 'name _id')
+          .exec();
 
-      if (!product) throw new NotFoundException('Product not found');
+        if (!product) throw new NotFoundException('Product not found');
 
-      for (const updatedVariant of dto.variantQuantities) {
-        const existingVariantIndex = item.variantQuantities.findIndex(
-          (vq: any) => vq.variant.toString() === updatedVariant.variant,
-        );
+        // Iterate incoming variant updates in order
+        for (const updatedVariant of dto.variantQuantities) {
+          // normalize ids to string for comparisons
+          const incomingVariantId = updatedVariant.variant.toString();
 
-        if (existingVariantIndex > -1) {
-          // Handle empty sizeQuantities array - remove the entire variant
-          if (updatedVariant.sizeQuantities.length === 0) {
-            // Remove the entire variant
-            item.variantQuantities.splice(existingVariantIndex, 1);
-            continue;
-          }
+          const existingVariantIndex = item.variantQuantities.findIndex(
+            (vq: any) => vq.variant.toString() === incomingVariantId,
+          );
 
-          // Update existing variant - only update provided sizes, keep others unchanged
-          const existingVariant = item.variantQuantities[existingVariantIndex];
-
-          // Create a map of existing size quantities for easy lookup
-          const existingSizeMap = new Map();
-          existingVariant.sizeQuantities.forEach((sq: any) => {
-            existingSizeMap.set(sq.size.toString(), sq);
-          });
-
-          // Update only the sizes provided in the request
-          for (const updatedSize of updatedVariant.sizeQuantities) {
-            if (updatedSize.quantity > 0) {
-              // Update existing size or add new size to this variant
-              existingSizeMap.set(updatedSize.size, {
-                size: new Types.ObjectId(updatedSize.size),
-                quantity: updatedSize.quantity,
-              });
-            } else {
-              // Remove size if quantity is 0 or negative
-              existingSizeMap.delete(updatedSize.size);
+          // Helper: build incoming size map (sizeId -> quantity)
+          const incomingSizeMap = new Map<string, number>();
+          if (Array.isArray(updatedVariant.sizeQuantities)) {
+            for (const sq of updatedVariant.sizeQuantities) {
+              incomingSizeMap.set(sq.size.toString(), Number(sq.quantity));
             }
           }
 
-          // Convert back to array
-          existingVariant.sizeQuantities = Array.from(existingSizeMap.values());
-        } else {
-          // Skip if trying to add a variant with empty sizeQuantities
-          if (updatedVariant.sizeQuantities.length === 0) {
-            continue;
-          }
+          // === CASE A: Existing variant in cart ===
+          if (existingVariantIndex > -1) {
+            // Remove entire variant if client explicitly sent an empty array
+            if (
+              Array.isArray(updatedVariant.sizeQuantities) &&
+              updatedVariant.sizeQuantities.length === 0
+            ) {
+              // remove the variant from item
+              item.variantQuantities.splice(existingVariantIndex, 1);
+              this.logger.debug(
+                `Removed variant ${incomingVariantId} from cart item ${item._id}`,
+              );
+              continue;
+            }
 
-          // Validate new variant before adding
-          const newVariant = (product.variants as any).find(
-            (v: any) => v._id.toString() === updatedVariant.variant,
-          );
+            // Merge incoming sizes with existing sizes
+            const existingVariant =
+              item.variantQuantities[existingVariantIndex];
 
-          if (!newVariant) {
-            throw new NotFoundException(
-              `Variant ${updatedVariant.variant} not found in product`,
+            // Build map of existing sizes
+            const existingSizeMap = new Map<string, number>();
+            for (const esq of existingVariant.sizeQuantities) {
+              existingSizeMap.set(esq.size.toString(), Number(esq.quantity));
+            }
+
+            // Apply incoming updates: qty > 0 => set/overwrite; qty === 0 => remove that size
+            for (const [sizeId, qty] of incomingSizeMap.entries()) {
+              if (qty > 0) {
+                existingSizeMap.set(sizeId, qty);
+              } else {
+                existingSizeMap.delete(sizeId);
+              }
+            }
+
+            // Convert back to array of ObjectIds; if none left, remove the variant
+            const mergedSizeQuantities = Array.from(
+              existingSizeMap.entries(),
+            ).map(([sizeId, quantity]) => ({
+              size: new Types.ObjectId(sizeId),
+              quantity,
+            }));
+
+            if (mergedSizeQuantities.length === 0) {
+              // remove variant entirely
+              item.variantQuantities.splice(existingVariantIndex, 1);
+              this.logger.debug(
+                `Removed variant ${incomingVariantId} because no sizes left for cart item ${item._id}`,
+              );
+            } else {
+              existingVariant.sizeQuantities = mergedSizeQuantities;
+            }
+          } else {
+            // === CASE B: Adding a new variant to the item (only if sizes present and qty>0) ===
+            if (
+              !Array.isArray(updatedVariant.sizeQuantities) ||
+              updatedVariant.sizeQuantities.length === 0
+            ) {
+              // nothing to add (frontend might have sent empty array unintentionally)
+              this.logger.debug(
+                `Skipping add for variant ${incomingVariantId} — empty sizes provided`,
+              );
+              continue;
+            }
+
+            // Validate the requested variant exists on the product
+            const productVariant = (product.variants as any[]).find(
+              (v: any) => v._id.toString() === incomingVariantId,
             );
-          }
-
-          if (newVariant.stockStatus === ProductStatus.STOCKOUT) {
-            throw new BadRequestException(
-              `Variant ${newVariant.color.name} is out of stock`,
-            );
-          }
-
-          // Validate sizes for new variant
-          const validSizeQuantities = updatedVariant.sizeQuantities.filter(
-            (sq) => sq.quantity > 0,
-          );
-
-          if (validSizeQuantities.length === 0) {
-            throw new BadRequestException(
-              `At least one size with quantity > 0 is required for new variant ${newVariant.color.name}`,
-            );
-          }
-
-          const availableSizeIds = newVariant.size.map((s: any) =>
-            s._id.toString(),
-          );
-          for (const sq of validSizeQuantities) {
-            if (!availableSizeIds.includes(sq.size)) {
-              const sizeDoc = await this.sizeModel.findById(sq.size);
-              throw new BadRequestException(
-                `Size ${sizeDoc?.name || sq.size} not available for variant ${newVariant.color.name}`,
+            if (!productVariant) {
+              throw new NotFoundException(
+                `Variant ${incomingVariantId} not found for product ${product._id}`,
               );
             }
+
+            // Optional: respect variant-level stockStatus if present
+            if (
+              (productVariant as any).stockStatus === ProductStatus.STOCKOUT
+            ) {
+              throw new BadRequestException(
+                `Variant ${productVariant.color?.name || incomingVariantId} is out of stock`,
+              );
+            }
+
+            // Validate sizes exist on that variant
+            const availableSizeIds = (productVariant.size || []).map(
+              (s: any) => (s._id ? s._id.toString() : s.toString()),
+            );
+
+            const validSizeQuantities = updatedVariant.sizeQuantities
+              .map((sq: any) => ({
+                size: sq.size.toString(),
+                quantity: Number(sq.quantity),
+              }))
+              .filter((sq: any) => sq.quantity > 0); // skip zero/negative quantities for add
+
+            if (validSizeQuantities.length === 0) {
+              // nothing to add
+              this.logger.debug(
+                `No valid sizes (qty>0) to add for variant ${incomingVariantId}`,
+              );
+              continue;
+            }
+
+            // ensure sizes are available
+            for (const sq of validSizeQuantities) {
+              if (!availableSizeIds.includes(sq.size)) {
+                const sizeDoc = await this.sizeModel.findById(sq.size);
+                throw new BadRequestException(
+                  `Size ${sizeDoc?.name || sq.size} not available for variant ${productVariant.color?.name || incomingVariantId}`,
+                );
+              }
+            }
+
+            // Append new variant with validated sizes
+            item.variantQuantities.push({
+              variant: new Types.ObjectId(productVariant._id),
+              sizeQuantities: validSizeQuantities.map((sq: any) => ({
+                size: new Types.ObjectId(sq.size),
+                quantity: sq.quantity,
+              })),
+            });
           }
+        } // end for each updatedVariant
 
-          // Add new variant after validation
-          item.variantQuantities.push({
-            variant: new Types.ObjectId(updatedVariant.variant),
-            sizeQuantities: validSizeQuantities.map((sq) => ({
-              size: new Types.ObjectId(sq.size),
-              quantity: sq.quantity,
-            })),
-          });
+        // Cleanup: remove any empty variants defensively
+        item.variantQuantities = item.variantQuantities.filter(
+          (vq: any) =>
+            Array.isArray(vq.sizeQuantities) && vq.sizeQuantities.length > 0,
+        );
+
+        // If no variants left after updates, remove the whole cart item
+        if (item.variantQuantities.length === 0) {
+          cart.items.splice(itemIndex, 1);
+          this.logger.debug(
+            `Removed entire cart item ${item._id} as no variants remain`,
+          );
         }
+      } // end if variantQuantities provided
+
+      // Update selection status if provided
+      if (dto.isSelected !== undefined) {
+        item.isSelected = dto.isSelected;
       }
 
-      // Remove variants with no size quantities
-      item.variantQuantities = item.variantQuantities.filter(
-        (vq: any) => vq.sizeQuantities && vq.sizeQuantities.length > 0,
-      );
+      cart.markModified('items');
+      await cart.save();
 
-      // Remove entire item if no variants left
-      if (item.variantQuantities.length === 0) {
-        cart.items.splice(itemIndex, 1);
-      }
+      return await this.getCartWithDetails(userId);
+    } catch (err: any) {
+      this.logger.error(`Error updating cart item ${itemId}: ${err.message}`);
+      throw err;
     }
-
-    // Update selection status if provided
-    if (dto.isSelected !== undefined) {
-      item.isSelected = dto.isSelected;
-    }
-
-    cart.markModified('items');
-    await cart.save();
-    return await this.getCartWithDetails(userId);
   }
 
   // ==================== REMOVE CART ITEM ====================
