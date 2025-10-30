@@ -1,12 +1,23 @@
-import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
+import {
+  MiddlewareConsumer,
+  Module,
+  NestModule,
+  RequestMethod,
+} from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Order, OrderSchema } from './schema/order.schema';
 import { OrdersController } from './order.controller';
 import { OrderService } from './order.service';
-import { Address, AddressSchema } from 'src/modules/address/schema/address.schema';
+import {
+  Address,
+  AddressSchema,
+} from 'src/modules/address/schema/address.schema';
 import { Cart, CartSchema } from 'src/modules/cart/schema/cart.schema';
 import { User, UserSchema } from 'src/modules/users/schema/user.schema';
-import { Product, ProductSchema } from 'src/modules/products/schema/product.schema';
+import {
+  Product,
+  ProductSchema,
+} from 'src/modules/products/schema/product.schema';
 import { Design, DesignSchema } from 'src/modules/designs/schema/design.schema';
 import * as express from 'express';
 import { CartModule } from 'src/modules/cart/cart.module';
@@ -14,7 +25,6 @@ import { NotificationsModule } from 'src/modules/notifications/notifications.mod
 import { CheckoutController } from 'src/modules/order/payment/checkout.controller';
 import { StripeWebhookController } from 'src/modules/order/payment/stripe-webhook.controller';
 import { StripeService } from 'src/modules/order/payment/stripe.service';
-
 
 @Module({
   imports: [

@@ -5,20 +5,30 @@ import { ConfigService } from '@nestjs/config';
 import { UsersService } from 'src/modules/users/users.service';
 import { UserStatus } from 'src/common/enum/user.status.enum';
 import { JwtPayload } from 'src/common/interface/jwtPayload.interface';
+import { AuthService } from 'src/modules/auth/auth.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     private readonly config: ConfigService,
     private readonly usersService: UsersService,
+    private readonly authService: AuthService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       secretOrKey: config.getOrThrow<string>('JWT_SECRET'),
+      passReqToCallback: true,
     });
   }
 
-  async validate(payload: JwtPayload): Promise<JwtPayload> {
+  async validate(req: any, payload: JwtPayload): Promise<JwtPayload> {
+    const token = req.get('authorization')?.replace('Bearer ', '').trim();
+
+    // Check if token is blacklisted
+    if (await this.authService.isTokenBlacklisted(token)) {
+      throw new UnauthorizedException('Token has been revoked');
+    }
+
     if (!payload.userId || !payload.email || !payload.role) {
       throw new UnauthorizedException('Invalid token payload');
     }

@@ -179,8 +179,8 @@ export class ReviewService {
     try {
       return await this.reviewModel
         .find()
-        .populate('user')
-        .populate('product')
+        .populate('user', 'name firstName lastName imageUrl')
+        .lean()
         .exec();
     } catch (error) {
       console.error('Error fetching all reviews:', error);
@@ -188,18 +188,86 @@ export class ReviewService {
     }
   }
 
+  async findByProduct(productId: string, page = 1, limit = 10) {
+    const skip = (page - 1) * limit;
+
+    if (!Types.ObjectId.isValid(productId)) {
+      throw new BadRequestException('Invalid product ID');
+    }
+
+    const matchCondition = {
+      $or: [
+        { product: new Types.ObjectId(productId) },
+        { product: productId }, // support string-based references
+      ],
+    };
+
+    const [items, total, stats] = await Promise.all([
+      this.reviewModel
+        .find({ product: productId })
+        .populate('user', 'firstName lastName imageUrl')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean()
+        .exec(),
+
+      this.reviewModel.countDocuments({ product: productId }),
+
+      this.reviewModel.aggregate([
+        { $match: matchCondition },
+        {
+          $group: {
+            _id: null,
+            avgRating: { $avg: '$rating' },
+            totalReviews: { $sum: 1 },
+          },
+        },
+      ]),
+    ]);
+
+    const avgRating = stats[0]?.avgRating
+      ? Number(stats[0].avgRating.toFixed(2))
+      : 0;
+    const totalReviews = stats[0]?.totalReviews || 0;
+
+    return { items, total, avgRating, totalReviews };
+  }
+  
   async findOne(id: string) {
     this.assertValidObjectId(id, 'review');
+
     try {
-      const review = await this.reviewModel
-        .findById(id)
-        .populate('user')
-        .populate('product')
-        .exec();
+      // Find review without populate first
+      const review = await this.reviewModel.findById(id).lean();
       if (!review) {
         throw new NotFoundException(`Review with ID ${id} not found`);
       }
-      return review;
+
+      // Populate manually only if product ID is valid
+      const populatedReview: any = { ...review };
+
+      if (review.user && Types.ObjectId.isValid(review.user)) {
+        populatedReview.user = await this.reviewModel.db
+          .collection('users')
+          .findOne(
+            { _id: new Types.ObjectId(review.user) },
+            { projection: { firstName: 1, lastName: 1, imageUrl: 1 } },
+          );
+      }
+
+      if (review.product && Types.ObjectId.isValid(review.product)) {
+        populatedReview.product = await this.reviewModel.db
+          .collection('products')
+          .findOne(
+            { _id: new Types.ObjectId(review.product) },
+            { projection: { productName: 1, rating: 1, reviewCount: 1 } },
+          );
+      } else {
+        populatedReview.product = null; 
+      }
+
+      return populatedReview;
     } catch (error) {
       console.error(`Error fetching review with ID ${id}:`, error);
       throw new InternalServerErrorException('Failed to fetch review');

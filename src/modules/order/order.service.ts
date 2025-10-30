@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ConflictException,
   Logger,
+  Inject,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -26,21 +27,7 @@ import {
 } from 'src/modules/designs/schema/design.schema';
 import { NotificationService } from 'src/modules/notifications/notifications.service';
 import { ProductStatus } from 'src/common/enum/product.status.enum';
-
-interface PopulatedCartItem {
-  _id: Types.ObjectId;
-  product: ProductDocument;
-  design?: DesignDocument;
-  variantQuantities: any[];
-  isSelected: boolean;
-  price: number;
-  designData?: any;
-  isDesignItem: boolean;
-}
-
-interface PopulatedCart extends Omit<CartDocument, 'items'> {
-  items: PopulatedCartItem[];
-}
+import { CartService } from '../cart/cart.service';
 
 @Injectable()
 export class OrderService {
@@ -54,7 +41,129 @@ export class OrderService {
     @InjectModel(Product.name) private readonly productModel: Model<Product>,
     @InjectModel(Design.name) private readonly designModel: Model<Design>,
     private readonly notificationService: NotificationService,
+    private readonly cartService: CartService, // Inject CartService
   ) {}
+  // async create(userId: string, createOrderDto: CreateOrderDto) {
+  //   // Idempotency check
+  //   if (createOrderDto.idempotencyKey) {
+  //     const existingOrder = await this.orderModel.findOne({
+  //       idempotencyKey: createOrderDto.idempotencyKey,
+  //     });
+  //     if (existingOrder) return existingOrder;
+  //   }
+
+  //   // Validate address
+  //   const address = await this.addressModel.findOne({
+  //     _id: createOrderDto.addressId,
+  //     user: new Types.ObjectId(userId),
+  //   });
+  //   if (!address) throw new BadRequestException('Invalid address');
+
+  //   // Get user's cart
+  //   const cart = await this.cartModel
+  //     .findOne({ user: new Types.ObjectId(userId), isActive: true })
+  //     .populate('items.product')
+  //     .populate('items.design')
+  //     .exec();
+
+  //   if (!cart || cart.items.length === 0) {
+  //     throw new BadRequestException('Cart is empty');
+  //   }
+
+  //   // Filter only selected items
+  //   const selectedItems = cart.items.filter((item) => item.isSelected);
+  //   if (selectedItems.length === 0) {
+  //     throw new BadRequestException('No items selected for checkout');
+  //   }
+
+  //   // Prepare order items and calculate totals
+  //   let subtotal = 0;
+  //   const orderItems = await Promise.all(
+  //     selectedItems.map(async (item) => {
+  //       const product = item.product as any;
+  //       if (!product) {
+  //         throw new BadRequestException('Product not found in cart item');
+  //       }
+
+  //       const itemVariantQuantities = await Promise.all(
+  //         item.variantQuantities.map(async (vq) => {
+  //           const variantSizeQuantities = await Promise.all(
+  //             vq.sizeQuantities.map(async (sq) => {
+  //               const sizeTotal = product.discountedPrice * sq.quantity;
+  //               return {
+  //                 size: sq.size,
+  //                 quantity: sq.quantity,
+  //                 price: product.discountedPrice,
+  //                 sizeTotal,
+  //               };
+  //             }),
+  //           );
+
+  //           const variantTotal = variantSizeQuantities.reduce(
+  //             (sum, sq) => sum + sq.sizeTotal,
+  //             0,
+  //           );
+
+  //           return {
+  //             variant: vq.variant,
+  //             sizeQuantities: variantSizeQuantities,
+  //             variantTotal,
+  //           };
+  //         }),
+  //       );
+
+  //       const itemTotal = itemVariantQuantities.reduce(
+  //         (sum, vq) => sum + vq.variantTotal,
+  //         0,
+  //       );
+
+  //       subtotal += itemTotal;
+
+  //       return {
+  //         _id: new Types.ObjectId(),
+  //         product: item.product,
+  //         design: item.design,
+  //         variantQuantities: itemVariantQuantities,
+  //         price: product.discountedPrice,
+  //         itemTotal,
+  //         designData: item.designData,
+  //         isDesignItem: item.isDesignItem,
+  //       };
+  //     }),
+  //   );
+
+  //   const total = subtotal; // Add shipping if needed
+
+  //   // Validate stock availability
+  //   await this.validateStockAvailability(orderItems);
+
+  //   // Create order
+  //   const order = new this.orderModel({
+  //     user: new Types.ObjectId(userId),
+  //     items: orderItems,
+  //     address: new Types.ObjectId(createOrderDto.addressId),
+  //     paymentMethod: createOrderDto.paymentMethod,
+  //     paymentStatus: PaymentStatus.PENDING,
+  //     subtotal,
+  //     total,
+  //     status: OrderStatus.PENDING,
+  //     idempotencyKey: createOrderDto.idempotencyKey || uuidv4(),
+  //     orderDate: new Date(),
+  //   });
+
+  //   const savedOrder = await order.save();
+
+  //   // Update product stock
+  //   await this.updateProductStock(orderItems, 'decrement');
+
+  //   // Remove ordered items from cart
+  //   await this.removeOrderedItemsFromCart(userId, selectedItems);
+
+  //   // Send notifications
+  //   await this.notifyOrderCreation(savedOrder, userId);
+
+  //   return savedOrder;
+  // }
 
   async create(userId: string, createOrderDto: CreateOrderDto) {
     // Idempotency check
@@ -72,31 +181,13 @@ export class OrderService {
     });
     if (!address) throw new BadRequestException('Invalid address');
 
-    // Get user's cart
-    const cart = await this.cartModel
-      .findOne({ user: new Types.ObjectId(userId), isActive: true })
-      .populate('items.product')
-      .populate('items.design')
-      .exec();
-
-    if (!cart || cart.items.length === 0) {
-      throw new BadRequestException('Cart is empty');
-    }
-
-    // Filter only selected items
-    const selectedItems = cart.items.filter((item) => item.isSelected);
-    if (selectedItems.length === 0) {
-      throw new BadRequestException('No items selected for checkout');
-    }
+    const cart = await this.cartService.validateCartForCheckout(userId);
 
     // Prepare order items and calculate totals
     let subtotal = 0;
     const orderItems = await Promise.all(
-      selectedItems.map(async (item) => {
+      cart.items.map(async (item) => {
         const product = item.product as any;
-        if (!product) {
-          throw new BadRequestException('Product not found in cart item');
-        }
 
         const itemVariantQuantities = await Promise.all(
           item.variantQuantities.map(async (vq) => {
@@ -145,10 +236,10 @@ export class OrderService {
       }),
     );
 
-    const total = subtotal; // Add shipping if needed
+    const total = subtotal;
 
-    // Validate stock availability
-    await this.validateStockAvailability(orderItems);
+    // Validate stock availability (additional safety check)
+    // await this.validateStockAvailability(orderItems);
 
     // Create order
     const order = new this.orderModel({
@@ -167,62 +258,16 @@ export class OrderService {
     const savedOrder = await order.save();
 
     // Update product stock
-    await this.updateProductStock(orderItems, 'decrement');
+    // await this.updateProductStock(orderItems, 'decrement');
 
     // Remove ordered items from cart
-    await this.removeOrderedItemsFromCart(userId, selectedItems);
+    await this.removeOrderedItemsFromCart(userId, cart.items);
 
     // Send notifications
     await this.notifyOrderCreation(savedOrder, userId);
 
     return savedOrder;
   }
-
-  // private async validateStockAvailability(orderItems: any[]) {
-  //   for (const item of orderItems) {
-  //     const product = await this.productModel.findById(item.product);
-  //     if (!product) {
-  //       throw new ConflictException(`Product ${item.product} not found`);
-  //     }
-
-  //     // Check if product has stock property, otherwise skip stock validation
-  //     if ('stock' in product) {
-  //       for (const vq of item.variantQuantities) {
-  //         for (const sq of vq.sizeQuantities) {
-  //           if (product.stock < sq.quantity) {
-  //             throw new ConflictException(
-  //               `Insufficient stock for ${product.productName}. Available: ${product.stock}, Requested: ${sq.quantity}`,
-  //             );
-  //           }
-  //         }
-  //       }
-  //     }
-  //   }
-  // }
-
-  // private async updateProductStock(
-  //   orderItems: any[],
-  //   operation: 'decrement' | 'increment',
-  // ) {
-  //   for (const item of orderItems) {
-  //     const product = await this.productModel.findById(item.product);
-  //     if (!product) continue;
-
-  //     let totalQuantity = 0;
-  //     for (const vq of item.variantQuantities) {
-  //       for (const sq of vq.sizeQuantities) {
-  //         totalQuantity += sq.quantity;
-  //       }
-  //     }
-
-  //     const update =
-  //       operation === 'decrement'
-  //         ? { $inc: { stock: -totalQuantity } }
-  //         : { $inc: { stock: totalQuantity } };
-
-  //     await this.productModel.findByIdAndUpdate(item.product, update);
-  //   }
-  // }
 
   private async validateStockAvailability(orderItems: any[]) {
     for (const item of orderItems) {

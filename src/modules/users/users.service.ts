@@ -179,6 +179,22 @@ export class UsersService {
     }
   }
 
+  async toggleBlockStatus(id: string) {
+    const user = await this.userModel.findById(id);
+    if (!user) throw new NotFoundException('User not found');
+  
+    const isBlocked = user.status === UserStatus.BLOCKED;
+    const newStatus = isBlocked ? UserStatus.APPROVED : UserStatus.BLOCKED;
+  
+    await this.updateStatus(id, newStatus);
+  
+    return {
+      message: `User ${isBlocked ? 'unblocked' : 'blocked'} successfully`,
+      user,
+    };
+  }
+  
+
   async createUser(data: Partial<User>): Promise<User> {
     const user = new this.userModel(data);
     return await (user as any).save();

@@ -21,6 +21,9 @@ import {
   AddDesignToCartDto,
 } from './dto/create-cart.dto';
 import { UpdateCartItemDto } from 'src/modules/cart/dto/update-cart.dto';
+import { Roles } from 'src/common/decorator/roles.decorator';
+import { Role } from 'src/common/enum/user_role.enum';
+import { RolesGuard } from 'src/common/guards/roles.guard';
 
 @Controller('carts')
 @UseGuards(JwtAuthGuard)
@@ -29,6 +32,8 @@ export class CartController {
 
   // ==================== GET CART ====================
   @Get()
+  @Roles(Role.USER)
+  @UseGuards(RolesGuard)
   async getCart(@Req() req) {
     const userId = req.user.userId;
 
@@ -52,6 +57,8 @@ export class CartController {
 
   // ==================== ADD REGULAR PRODUCT TO CART ====================
   @Post('regular')
+  @Roles(Role.USER)
+  @UseGuards(RolesGuard)
   async addRegularProductToCart(
     @Body() addRegularProductToCartDto: AddRegularProductToCartDto,
     @Req() req,
@@ -92,6 +99,8 @@ export class CartController {
 
   // ==================== ADD DESIGN TO CART ====================
   @Post('design')
+  @Roles(Role.USER)
+  @UseGuards(RolesGuard)
   async addDesignToCart(
     @Body() addDesignToCartDto: AddDesignToCartDto,
     @Req() req,
@@ -132,6 +141,8 @@ export class CartController {
 
   // ==================== GET ITEM DETAILS ====================
   @Get('item/:itemId')
+  @Roles(Role.USER)
+  @UseGuards(RolesGuard)
   async getItemDetails(@Param('itemId') itemId: string, @Req() req) {
     const userId = req.user.userId;
 
@@ -163,6 +174,8 @@ export class CartController {
 
   // ==================== UPDATE CART ITEM ====================
   @Put('item/:itemId')
+  @Roles(Role.USER)
+  @UseGuards(RolesGuard)
   async updateCartItem(
     @Param('itemId') itemId: string,
     @Body() updateCartItemDto: UpdateCartItemDto,
@@ -202,6 +215,8 @@ export class CartController {
 
   // ==================== REMOVE CART ITEM ====================
   @Delete('item')
+  @Roles(Role.USER)
+  @UseGuards(RolesGuard)
   async removeFromCart(
     @Body() removeFromCartDto: RemoveFromCartDto,
     @Req() req,
@@ -239,6 +254,8 @@ export class CartController {
 
   // ==================== CLEAR CART ====================
   @Delete('clear')
+  @Roles(Role.USER)
+  @UseGuards(RolesGuard)
   async clearCart(@Req() req) {
     const userId = req.user.userId;
 

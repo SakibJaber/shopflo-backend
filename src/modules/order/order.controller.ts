@@ -41,6 +41,8 @@ export class OrdersController {
   ) {}
 
   @Post()
+  @Roles(Role.USER)
+  @UseGuards(RolesGuard)
   async placeOrder(
     @Req() req,
     @Body() createOrderDto: CreateOrderDto,
@@ -74,9 +76,9 @@ export class OrdersController {
             product_data: {
               name: (item as any).product?.productName || 'Product',
               description: `Size: ${sq.size} - Quantity: ${sq.quantity}`,
-              images: item.isDesignItem && (item as any).design?.frontImage 
-                ? [(item as any).design.frontImage] 
-                : [(item as any).product?.thumbnail],
+              // images: item.isDesignItem && (item as any).design?.frontImage 
+              //   ? [(item as any).design.frontImage] 
+              //   : [(item as any).product?.thumbnail],
             },
             unit_amount: Math.round(sq.price * 100),
           },

@@ -20,11 +20,19 @@ import { User, UserDocument } from 'src/modules/users/schema/user.schema';
 import { NotificationPriority } from '../notifications/schema/notification.schema';
 import { NotificationService } from 'src/modules/notifications/notifications.service';
 import { NotificationType } from 'src/common/enum/notification_type.enum';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import {
+  TokenBlacklist,
+  TokenBlacklistDocument,
+} from 'src/modules/users/schema/token-blacklist.schema';
 
 @Injectable()
 export class AuthService {
   private readonly otpExpiryMs: number;
   constructor(
+    @InjectModel(TokenBlacklist.name)
+    private readonly blacklistModel: Model<TokenBlacklistDocument>,
     private usersService: UsersService,
     private mailService: MailService,
     private jwt: JwtService,
@@ -107,27 +115,54 @@ export class AuthService {
     return tokens;
   }
 
-  async logout(userId: string) {
-    await this.usersService.updateRefreshToken(userId, null);
-
-    // 🔔 NOTIFICATION: Notify about logout (security notification)
+  async blacklistToken(token: string) {
     try {
-      await this.notificationService.createNotification({
-        recipient: userId,
-        title: 'Logout Successful',
-        message: 'You have successfully logged out of your account.',
-        type: NotificationType.LOGOUT,
-        priority: NotificationPriority.LOW,
-        metadata: {
-          logoutTime: new Date().toISOString(),
-        },
-      });
-    } catch (notificationError) {
-      console.error('Failed to send logout notification:', notificationError);
-    }
+      const decoded = this.jwt.decode(token) as any;
+      if (!decoded || !decoded.exp) return;
 
+      const expiresAt = new Date(decoded.exp * 1000); // exp is in seconds
+      await this.blacklistModel.create({ token, expiresAt });
+    } catch (err) {
+      console.error('Failed to blacklist token:', err);
+    }
+  }
+
+  // 🧩 Check if token is blacklisted
+  async isTokenBlacklisted(token: string): Promise<boolean> {
+    const found = await this.blacklistModel.exists({ token });
+    return !!found;
+  }
+
+  // 🧩 Modify logout to blacklist the token
+  async logout(userId: string, token?: string) {
+    await this.usersService.updateRefreshToken(userId, null);
+    if (token) await this.blacklistToken(token);
+
+    // Send logout notification as before...
     return { message: 'Logged out successfully' };
   }
+
+  // async logout(userId: string) {
+  //   await this.usersService.updateRefreshToken(userId, null);
+
+  //   // 🔔 NOTIFICATION: Notify about logout (security notification)
+  //   try {
+  //     await this.notificationService.createNotification({
+  //       recipient: userId,
+  //       title: 'Logout Successful',
+  //       message: 'You have successfully logged out of your account.',
+  //       type: NotificationType.LOGOUT,
+  //       priority: NotificationPriority.LOW,
+  //       metadata: {
+  //         logoutTime: new Date().toISOString(),
+  //       },
+  //     });
+  //   } catch (notificationError) {
+  //     console.error('Failed to send logout notification:', notificationError);
+  //   }
+
+  //   return { message: 'Logged out successfully' };
+  // }
 
   async refreshTokens(userId: string, refreshToken: string) {
     const user = await this.usersService.findById(userId);

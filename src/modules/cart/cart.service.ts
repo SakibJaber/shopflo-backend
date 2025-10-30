@@ -978,4 +978,97 @@ export class CartService {
     });
     return cart || this.createCart(userId);
   }
+
+  // Add this method to your CartService class
+  async validateCartForCheckout(userId: string) {
+    const cart = await this.getCart(userId);
+
+    if (!cart || cart.items.length === 0) {
+      throw new BadRequestException('Cart is empty');
+    }
+
+    // Filter only selected items
+    const selectedItems = cart.items.filter((item) => item.isSelected);
+
+    if (selectedItems.length === 0) {
+      throw new BadRequestException('No items selected for checkout');
+    }
+
+    // Validate each item in cart
+    const validationErrors: string[] = [];
+
+    for (const item of selectedItems) {
+      const product = item.product as any;
+
+      if (!product) {
+        validationErrors.push(`Product not found in cart item ${item._id}`);
+        continue;
+      }
+
+      // Check if product is available
+      if (product.stockStatus === ProductStatus.STOCKOUT) {
+        validationErrors.push(
+          `Product "${product.productName}" is out of stock`,
+        );
+        continue;
+      }
+
+      // Validate variants and sizes
+      for (const vq of item.variantQuantities) {
+        const variant = product.variants.find(
+          (v: any) => v._id.toString() === vq.variant.toString(),
+        );
+
+        if (!variant) {
+          validationErrors.push(
+            `Variant ${vq.variant} not found in product ${product.productName}`,
+          );
+          continue;
+        }
+
+        if (variant.stockStatus === ProductStatus.STOCKOUT) {
+          validationErrors.push(
+            `Variant ${variant.color?.name || vq.variant} of "${product.productName}" is out of stock`,
+          );
+          continue;
+        }
+
+        // Validate sizes and quantities
+        for (const sq of vq.sizeQuantities) {
+          // Check if size exists in variant
+          const sizeExists = variant.size.some(
+            (s: any) => s._id.toString() === sq.size.toString(),
+          );
+
+          if (!sizeExists) {
+            const sizeDoc = await this.sizeModel.findById(sq.size);
+            validationErrors.push(
+              `Size ${sizeDoc?.name || sq.size} not available for variant ${variant.color?.name || vq.variant} of "${product.productName}"`,
+            );
+          }
+
+          // Check stock if available
+          if (
+            typeof product.stock === 'number' &&
+            product.stock < sq.quantity
+          ) {
+            validationErrors.push(
+              `Insufficient stock for "${product.productName}". Available: ${product.stock}, Requested: ${sq.quantity}`,
+            );
+          }
+        }
+      }
+    }
+
+    if (validationErrors.length > 0) {
+      throw new BadRequestException(
+        `Cart validation failed: ${validationErrors.join(', ')}`,
+      );
+    }
+
+    return {
+      ...cart.toObject(),
+      items: selectedItems,
+    };
+  }
 }
