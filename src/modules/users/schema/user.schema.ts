@@ -28,6 +28,9 @@ export class User {
   @Prop()
   imageUrl?: string;
 
+  @Prop({ default: false })
+  isVerified: boolean;
+
   @Prop({ enum: UserStatus, default: UserStatus.APPROVED })
   status: UserStatus;
 
@@ -48,6 +51,13 @@ export class User {
 
   @Prop({ type: Number, default: 3 })
   maxOtpAttempts: number;
+
+
+  @Prop({ type: String, default: null })
+  emailVerificationCodeHash?: string | null;
+
+  @Prop({ type: Date, default: null })
+  emailVerificationExpires: Date | null;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

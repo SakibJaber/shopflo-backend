@@ -43,127 +43,6 @@ export class OrderService {
     private readonly notificationService: NotificationService,
     private readonly cartService: CartService, // Inject CartService
   ) {}
-  // async create(userId: string, createOrderDto: CreateOrderDto) {
-  //   // Idempotency check
-  //   if (createOrderDto.idempotencyKey) {
-  //     const existingOrder = await this.orderModel.findOne({
-  //       idempotencyKey: createOrderDto.idempotencyKey,
-  //     });
-  //     if (existingOrder) return existingOrder;
-  //   }
-
-  //   // Validate address
-  //   const address = await this.addressModel.findOne({
-  //     _id: createOrderDto.addressId,
-  //     user: new Types.ObjectId(userId),
-  //   });
-  //   if (!address) throw new BadRequestException('Invalid address');
-
-  //   // Get user's cart
-  //   const cart = await this.cartModel
-  //     .findOne({ user: new Types.ObjectId(userId), isActive: true })
-  //     .populate('items.product')
-  //     .populate('items.design')
-  //     .exec();
-
-  //   if (!cart || cart.items.length === 0) {
-  //     throw new BadRequestException('Cart is empty');
-  //   }
-
-  //   // Filter only selected items
-  //   const selectedItems = cart.items.filter((item) => item.isSelected);
-  //   if (selectedItems.length === 0) {
-  //     throw new BadRequestException('No items selected for checkout');
-  //   }
-
-  //   // Prepare order items and calculate totals
-  //   let subtotal = 0;
-  //   const orderItems = await Promise.all(
-  //     selectedItems.map(async (item) => {
-  //       const product = item.product as any;
-  //       if (!product) {
-  //         throw new BadRequestException('Product not found in cart item');
-  //       }
-
-  //       const itemVariantQuantities = await Promise.all(
-  //         item.variantQuantities.map(async (vq) => {
-  //           const variantSizeQuantities = await Promise.all(
-  //             vq.sizeQuantities.map(async (sq) => {
-  //               const sizeTotal = product.discountedPrice * sq.quantity;
-  //               return {
-  //                 size: sq.size,
-  //                 quantity: sq.quantity,
-  //                 price: product.discountedPrice,
-  //                 sizeTotal,
-  //               };
-  //             }),
-  //           );
-
-  //           const variantTotal = variantSizeQuantities.reduce(
-  //             (sum, sq) => sum + sq.sizeTotal,
-  //             0,
-  //           );
-
-  //           return {
-  //             variant: vq.variant,
-  //             sizeQuantities: variantSizeQuantities,
-  //             variantTotal,
-  //           };
-  //         }),
-  //       );
-
-  //       const itemTotal = itemVariantQuantities.reduce(
-  //         (sum, vq) => sum + vq.variantTotal,
-  //         0,
-  //       );
-
-  //       subtotal += itemTotal;
-
-  //       return {
-  //         _id: new Types.ObjectId(),
-  //         product: item.product,
-  //         design: item.design,
-  //         variantQuantities: itemVariantQuantities,
-  //         price: product.discountedPrice,
-  //         itemTotal,
-  //         designData: item.designData,
-  //         isDesignItem: item.isDesignItem,
-  //       };
-  //     }),
-  //   );
-
-  //   const total = subtotal; // Add shipping if needed
-
-  //   // Validate stock availability
-  //   await this.validateStockAvailability(orderItems);
-
-  //   // Create order
-  //   const order = new this.orderModel({
-  //     user: new Types.ObjectId(userId),
-  //     items: orderItems,
-  //     address: new Types.ObjectId(createOrderDto.addressId),
-  //     paymentMethod: createOrderDto.paymentMethod,
-  //     paymentStatus: PaymentStatus.PENDING,
-  //     subtotal,
-  //     total,
-  //     status: OrderStatus.PENDING,
-  //     idempotencyKey: createOrderDto.idempotencyKey || uuidv4(),
-  //     orderDate: new Date(),
-  //   });
-
-  //   const savedOrder = await order.save();
-
-  //   // Update product stock
-  //   await this.updateProductStock(orderItems, 'decrement');
-
-  //   // Remove ordered items from cart
-  //   await this.removeOrderedItemsFromCart(userId, selectedItems);
-
-  //   // Send notifications
-  //   await this.notifyOrderCreation(savedOrder, userId);
-
-  //   return savedOrder;
-  // }
 
   async create(userId: string, createOrderDto: CreateOrderDto) {
     // Idempotency check
@@ -269,40 +148,40 @@ export class OrderService {
     return savedOrder;
   }
 
-  private async validateStockAvailability(orderItems: any[]) {
-    for (const item of orderItems) {
-      const product = await this.productModel.findById(item.product).lean(); // .lean() returns plain JS object
+  // private async validateStockAvailability(orderItems: any[]) {
+  //   for (const item of orderItems) {
+  //     const product = await this.productModel.findById(item.product).lean(); // .lean() returns plain JS object
 
-      if (!product) {
-        throw new ConflictException(`Product ${item.product} not found`);
-      }
+  //     if (!product) {
+  //       throw new ConflictException(`Product ${item.product} not found`);
+  //     }
 
-      // If your product model uses a status enum (STOCKOUT / INSTOCK), check that.
-      // Treat STOCKOUT as unavailable regardless of quantities requested.
-      if ((product as any).status === ProductStatus.STOCKOUT) {
-        throw new ConflictException(
-          `Product ${(product as any).productName || item.product} is out of stock`,
-        );
-      }
+  //     // If your product model uses a status enum (STOCKOUT / INSTOCK), check that.
+  //     // Treat STOCKOUT as unavailable regardless of quantities requested.
+  //     if ((product as any).status === ProductStatus.STOCKOUT) {
+  //       throw new ConflictException(
+  //         `Product ${(product as any).productName || item.product} is out of stock`,
+  //       );
+  //     }
 
-      // If you also want to support numeric stock (optional), respect it when present:
-      const prodAny = product as any;
-      if (typeof prodAny.stock === 'number') {
-        // Ensure there is enough numeric stock for each size/variant requested.
-        for (const vq of item.variantQuantities) {
-          for (const sq of vq.sizeQuantities) {
-            if (prodAny.stock < sq.quantity) {
-              throw new ConflictException(
-                `Insufficient stock for ${prodAny.productName || item.product}. Available: ${prodAny.stock}, Requested: ${sq.quantity}`,
-              );
-            }
-          }
-        }
-      }
+  //     // If you also want to support numeric stock (optional), respect it when present:
+  //     const prodAny = product as any;
+  //     if (typeof prodAny.stock === 'number') {
+  //       // Ensure there is enough numeric stock for each size/variant requested.
+  //       for (const vq of item.variantQuantities) {
+  //         for (const sq of vq.sizeQuantities) {
+  //           if (prodAny.stock < sq.quantity) {
+  //             throw new ConflictException(
+  //               `Insufficient stock for ${prodAny.productName || item.product}. Available: ${prodAny.stock}, Requested: ${sq.quantity}`,
+  //             );
+  //           }
+  //         }
+  //       }
+  //     }
 
-      // Otherwise: no numeric stock present and status is not STOCKOUT — treat as available.
-    }
-  }
+  //     // Otherwise: no numeric stock present and status is not STOCKOUT — treat as available.
+  //   }
+  // }
 
   private async updateProductStock(
     orderItems: any[],
@@ -419,37 +298,48 @@ export class OrderService {
           {
             path: 'user',
             select: 'firstName lastName email imageUrl',
+            options: { lean: true },
           },
           {
             path: 'address',
             select:
               'streetNo city state postalCode country type recipientFirstName recipientLastName recipientEmail',
+            options: { lean: true },
           },
           {
             path: 'items.product',
             select:
               'productName brand price discountedPrice thumbnail variants',
+            options: { lean: true },
             populate: [
               {
                 path: 'brand',
                 select: 'brandName brandLogo',
+                options: { lean: true },
               },
               {
                 path: 'variants.color',
                 select: 'name hexValue',
-              },
-              {
-                path: 'variants.size',
-                select: 'name',
+                options: { lean: true },
               },
             ],
           },
           {
             path: 'items.design',
-            select: 'designName frontImage backImage leftImage rightImage',
+            select:
+              'designName frontImage frontElement backImage backElement leftImage leftElement rightImage rightElement',
+            options: { lean: true },
+          },
+          // populate for sizes
+          {
+            path: 'items.variantQuantities.sizeQuantities.size',
+            model: 'Size',
+            select: 'name',
+            options: { lean: true },
           },
         ])
         .sort({ createdAt: -1 })
+        .lean()
         .exec(),
       this.orderModel.countDocuments(query),
     ]);
@@ -472,33 +362,46 @@ export class OrderService {
         {
           path: 'user',
           select: 'firstName lastName email imageUrl',
+          options: { lean: true },
         },
         {
           path: 'address',
           select:
             'streetNo city state postalCode country type recipientFirstName recipientLastName recipientEmail',
+          options: { lean: true },
         },
         {
           path: 'items.product',
           select: 'productName brand price discountedPrice thumbnail variants',
+          options: { lean: true },
           populate: [
             {
               path: 'brand',
               select: 'brandName brandLogo',
+              options: { lean: true },
             },
-            {
-              path: 'variants.color',
-              select: 'name hexValue',
-            },
-            {
-              path: 'variants.size',
-              select: 'name',
-            },
+            // {
+            //   path: 'variants.color',
+            //   select: 'name hexValue',
+            // },
+            // {
+            //   path: 'variants.size',
+            //   select: 'name',
+            // },
           ],
         },
         {
           path: 'items.design',
-          select: 'designName frontImage backImage leftImage rightImage',
+          select:
+            'designName frontImage frontElement backImage backElement leftImage leftElement rightImage rightElement',
+          options: { lean: true },
+        },
+        // populate for sizes
+        {
+          path: 'items.variantQuantities.sizeQuantities.size',
+          model: 'Size',
+          select: 'name',
+          options: { lean: true },
         },
       ])
       .exec();

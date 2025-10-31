@@ -43,10 +43,4 @@ import { StripeService } from 'src/modules/order/payment/stripe.service';
   providers: [OrderService, StripeService],
   exports: [OrderService, StripeService],
 })
-export class OrderModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(express.raw({ type: 'application/json' }))
-      .forRoutes({ path: 'webhook/stripe', method: RequestMethod.POST });
-  }
-}
+export class OrderModule {}

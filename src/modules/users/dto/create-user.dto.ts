@@ -7,6 +7,7 @@ import {
   Min,
   Max,
   IsDateString,
+  IsBoolean,
 } from 'class-validator';
 import { Role } from 'src/common/enum/user_role.enum';
 import { UserStatus } from 'src/common/enum/user.status.enum';
@@ -25,7 +26,7 @@ export class CreateUserDto {
   password: string;
 
   @IsEnum(Role)
-  role: Role = Role.USER; 
+  role: Role = Role.USER;
 
   @IsOptional()
   @IsString()
@@ -34,6 +35,10 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   imageUrl?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isVerified: boolean;
 
   @IsEnum(UserStatus)
   status: UserStatus = UserStatus.APPROVED; // Default status is APPROVED

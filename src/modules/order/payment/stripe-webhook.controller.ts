@@ -27,7 +27,8 @@ import { OrderService } from 'src/modules/order/order.service';
       @Req() req,
       @Headers('stripe-signature') signature: string,
     ) {
-      const payload = req.rawBody;
+      
+      const payload = req.body;
       if (!payload || payload.length === 0) {
         this.logger.error('Empty webhook body received');
         return { received: false };

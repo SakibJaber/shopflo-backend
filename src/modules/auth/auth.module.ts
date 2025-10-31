@@ -11,7 +11,10 @@ import { JwtStrategy } from 'src/modules/auth/strategy/jwt.strategy';
 import { MailModule } from 'src/modules/mail/mail.module';
 import { NotificationsModule } from 'src/modules/notifications/notifications.module';
 import { UsersModule } from 'src/modules/users/users.module';
-import { TokenBlacklist, TokenBlacklistSchema } from 'src/modules/users/schema/token-blacklist.schema';
+import {
+  TokenBlacklist,
+  TokenBlacklistSchema,
+} from 'src/modules/users/schema/token-blacklist.schema';
 import { MongooseModule } from '@nestjs/mongoose';
 
 @Module({

@@ -19,7 +19,10 @@ export class IconsService {
     private readonly fileUploadService: FileUploadService,
   ) {}
 
-  private async ensureUniqueName(name: string, excludeId?: string): Promise<string> {
+  private async ensureUniqueName(
+    name: string,
+    excludeId?: string,
+  ): Promise<string> {
     let finalName = name;
     let i = 0;
     const exists = async (n: string) => {
@@ -80,7 +83,12 @@ export class IconsService {
     const skip = (page - 1) * limit;
 
     const [data, total] = await Promise.all([
-      this.iconModel.find(filter).sort({ iconName: 1 }).skip(skip).limit(limit).lean(),
+      this.iconModel
+        .find(filter)
+        .sort({ iconName: 1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
       this.iconModel.countDocuments(filter),
     ]);
 
@@ -105,7 +113,11 @@ export class IconsService {
   }
 
   // --- Update with optional icon file replace ---
-  async update(id: string, dto: UpdateIconDto, file?: Express.Multer.File): Promise<Icon> {
+  async update(
+    id: string,
+    dto: UpdateIconDto,
+    file?: Express.Multer.File,
+  ): Promise<Icon> {
     const existing = await this.iconModel.findById(id);
     if (!existing) {
       throw new NotFoundException({
