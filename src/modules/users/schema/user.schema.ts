@@ -52,7 +52,6 @@ export class User {
   @Prop({ type: Number, default: 3 })
   maxOtpAttempts: number;
 
-
   @Prop({ type: String, default: null })
   emailVerificationCodeHash?: string | null;
 

@@ -19,11 +19,11 @@ import { OrderModule } from './order/order.module';
 import { AddressModule } from './address/address.module';
 import { BannersModule } from './banner/banner.module';
 import { IconsModule } from './icon/icon.module';
-
 import { DesignsModule } from './designs/designs.module';
 import { ChartModule } from './chart/chart.module';
 import { FavoriteModule } from './favorite/favorite.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -51,6 +51,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     ChartModule,
     FavoriteModule,
     NotificationsModule,
+    DashboardModule,
   ],
 })
 export class DomainModule {}

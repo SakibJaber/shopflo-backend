@@ -75,7 +75,7 @@ export class AuthController {
     }
   }
 
-  @Post('forgot-password')
+  @Post('forgot')
   @HttpCode(HttpStatus.OK)
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     try {

@@ -80,7 +80,6 @@ export class AuthService {
     return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit code
   }
 
-
   // Signup & Email Verification
   async signup(dto: SignupAuthDto, file?: Express.Multer.File) {
     const existing = await this.usersService.findByEmail(dto.email);
@@ -226,7 +225,6 @@ export class AuthService {
     return { message: 'Email verified successfully' };
   }
 
-
   // Login & Token Management
   async login(dto: LoginAuthDto) {
     const user = await this.usersService.findByEmail(dto.email);
@@ -335,7 +333,6 @@ export class AuthService {
     return { message: 'Logged out successfully' };
   }
 
-
   // Password Management
   async changePassword(userId: string, dto: ChangePasswordDto) {
     const user = await this.usersService.findById(userId);
@@ -390,24 +387,69 @@ export class AuthService {
 
   async resetPassword(dto: ResetPasswordDto) {
     let payload: any;
+
     try {
+      // Verify the reset token
       payload = await this.jwt.verifyAsync(dto.resetToken, {
         secret: this.config.get<string>('JWT_RESET_SECRET'),
       });
-    } catch {
-      throw new BadRequestException('Invalid or expired reset token');
+    } catch (error) {
+      throw new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        message:
+          'Invalid or expired reset token. Please request a new password reset.',
+      });
     }
 
-    const user = await this.usersService.findById(payload.sub);
+    // Support both payload styles (sub or userId)
+    const userId = payload.userId || payload.sub;
+    if (!userId) {
+      throw new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        message:
+          'Invalid token payload. Please request a new password reset link.',
+      });
+    }
+
+    // Fetch the user
+    const user = await this.usersService.findById(userId);
     if (!user) {
-      throw new BadRequestException('User account no longer exists');
+      throw new BadRequestException({
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: 'User account no longer exists.',
+      });
     }
 
+    // Ensure account is active
+    if (
+      user.status === UserStatus.BLOCKED ||
+      user.status === UserStatus.REJECTED
+    ) {
+      throw new ForbiddenException({
+        statusCode: HttpStatus.FORBIDDEN,
+        message: `Cannot reset password. Account is ${user.status.toLowerCase()}.`,
+      });
+    }
+
+    // Hash and update password
     user.password = await bcrypt.hash(dto.newPassword, 10);
-    user.refreshToken = null; // Revoke sessions
+    user.refreshToken = null; // revoke active sessions
     await user.save();
 
-    return { message: 'Password reset successful' };
+    // Optionally notify user
+    try {
+      await this.mailService.sendEmail(
+        user.email,
+        'Your password has been reset',
+        'Your password has been successfully updated. If this was not you, please contact support immediately.',
+      );
+    } catch {
+      // Don’t block if email fails
+    }
+
+    return {
+      message: 'Password reset successful',
+    };
   }
 
   async verifyOtp(dto: VerifyOtpDto) {

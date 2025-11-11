@@ -30,6 +30,11 @@ export class StaticPageController {
     return this.staticPageService.findPageByType('terms');
   }
 
+  @Get('terms')
+  async getTerms() {
+    return this.staticPageService.findPageByType('terms');
+  }
+
   @Get('privacy-policy')
   async getPrivacyPolicy() {
     return this.staticPageService.findPageByType('privacy-policy');

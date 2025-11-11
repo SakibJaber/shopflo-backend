@@ -43,7 +43,9 @@ export class StripeService {
   }
 
   async constructEvent(payload: Buffer, signature: string) {
-    const webhookSecret = this.configService.get<string>('STRIPE_WEBHOOK_SECRET');
+    const webhookSecret = this.configService.get<string>(
+      'STRIPE_WEBHOOK_SECRET',
+    );
     if (!webhookSecret) {
       throw new InternalServerErrorException('STRIPE_WEBHOOK_SECRET not set');
     }
