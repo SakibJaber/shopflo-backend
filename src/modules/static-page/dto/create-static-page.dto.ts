@@ -1,8 +1,7 @@
 import { IsString, IsNotEmpty, IsEnum } from 'class-validator';
-import { Type } from 'class-transformer';
 
 export class CreateStaticPageDto {
-  @IsEnum(['about-us', 'terms', 'privacy-policy'])
+  @IsEnum(['about', 'terms', 'privacy'])
   type: string; // Page type, must be one of these values
 
   @IsString()

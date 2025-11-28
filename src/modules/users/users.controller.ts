@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  NotFoundException,
   Param,
   Patch,
   Query,
@@ -80,17 +81,25 @@ export class UsersController {
   @Roles(Role.ADMIN)
   async toggleBlockUser(@Param('id') id: string) {
     try {
-      const result = await this.usersService.toggleBlockStatus(id);
+      const user = await this.usersService.findById(id);
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      const newStatus = user.status === UserStatus.BLOCKED ? UserStatus.APPROVED : UserStatus.BLOCKED;
+      await this.usersService.updateStatus(id, newStatus);
+
       return {
         success: true,
         statusCode: 200,
-        message: result.message,
-        data: result.user,
+        message: `User has been ${newStatus === UserStatus.BLOCKED ? 'blocked' : 'unblocked'} successfully`,
+        data: { status: newStatus },
       };
     } catch (error) {
+      const statusCode = error.getStatus ? error.getStatus() : 400;
       return {
         success: false,
-        statusCode: 400,
+        statusCode,
         message: error.message || 'Failed to toggle user status',
         data: null,
       };
@@ -103,6 +112,7 @@ export class UsersController {
   async getUsers(
     @Query('role', new OptionalParseArrayPipe()) roles?: string[],
     @Query('status', new OptionalParseArrayPipe()) statuses?: UserStatus[],
+    @Query('search') search?: string,
     @Query('page') page = 1,
     @Query('limit') limit = 10,
   ) {
@@ -110,6 +120,7 @@ export class UsersController {
       const users = await this.usersService.findAll({
         roles,
         statuses,
+        search,
         page,
         limit,
       });

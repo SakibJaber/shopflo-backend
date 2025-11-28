@@ -12,6 +12,6 @@ import { NotificationService } from 'src/modules/notifications/notifications.ser
   ],
   controllers: [NotificationController],
   providers: [NotificationService],
-  exports: [NotificationService], // Export so other modules can use it
+  exports: [NotificationService], 
 })
 export class NotificationsModule {}

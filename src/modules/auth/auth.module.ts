@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
@@ -19,10 +19,10 @@ import { MongooseModule } from '@nestjs/mongoose';
 
 @Module({
   imports: [
+    forwardRef(() => UsersModule),
     MongooseModule.forFeature([
       { name: TokenBlacklist.name, schema: TokenBlacklistSchema },
     ]),
-    UsersModule,
     PassportModule,
     MailModule,
     NotificationsModule,
@@ -43,7 +43,13 @@ import { MongooseModule } from '@nestjs/mongoose';
       }),
     }),
   ],
-  providers: [AuthService, JwtStrategy, JwtRefreshStrategy, GoogleStrategy],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    JwtRefreshStrategy,
+    GoogleStrategy,
+  ],
   controllers: [AuthController],
+  exports: [ AuthService],
 })
 export class AuthModule {}

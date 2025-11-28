@@ -3,6 +3,8 @@ import {
   ForbiddenException,
   HttpException,
   Injectable,
+  Inject,
+  forwardRef,
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
@@ -16,6 +18,7 @@ import { NotificationType } from 'src/common/enum/notification_type.enum';
 import { Role } from 'src/common/enum/user_role.enum';
 import { UpdateUserDto } from 'src/modules/users/dto/update-user.dto';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
+import { AuthService } from 'src/modules/auth/auth.service';
 
 @Injectable()
 export class UsersService {
@@ -55,13 +58,15 @@ export class UsersService {
     const user = await this.userModel.findById(id);
     if (!user) throw new NotFoundException('User not found');
 
+    const previousStatus = user.status;
     (user as any).status = status;
 
-    // Revoke tokens when blocking
+    // Handle blocking/unblocking logic
     if (status === UserStatus.BLOCKED) {
+      // Clear the refresh token
       (user as any).refreshToken = null;
 
-      // 🔔 NOTIFICATION: Notify user about account blocking
+      // Send notification to the user
       try {
         await this.notificationService.createNotification({
           recipient: (user as any)._id?.toString(),
@@ -78,6 +83,29 @@ export class UsersService {
       } catch (notificationError) {
         console.error(
           'Failed to send account blocked notification:',
+          notificationError,
+        );
+      }
+    } else if (
+      status === UserStatus.APPROVED &&
+      previousStatus === UserStatus.BLOCKED
+    ) {
+      //  NOTIFICATION: Notify user about account unblocking
+      try {
+        await this.notificationService.createNotification({
+          recipient: (user as any)._id?.toString(),
+          title: 'Account Unblocked',
+          message: 'Your account has been unblocked. You can now login.',
+          type: NotificationType.ACCOUNT_UNBLOCKED,
+          priority: NotificationPriority.HIGH,
+          metadata: {
+            unblockedTime: new Date().toISOString(),
+            status: 'APPROVED',
+          },
+        });
+      } catch (notificationError) {
+        console.error(
+          'Failed to send account unblocked notification:',
           notificationError,
         );
       }
@@ -182,18 +210,17 @@ export class UsersService {
   async toggleBlockStatus(id: string) {
     const user = await this.userModel.findById(id);
     if (!user) throw new NotFoundException('User not found');
-  
+
     const isBlocked = user.status === UserStatus.BLOCKED;
     const newStatus = isBlocked ? UserStatus.APPROVED : UserStatus.BLOCKED;
-  
+
     await this.updateStatus(id, newStatus);
-  
+
     return {
       message: `User ${isBlocked ? 'unblocked' : 'blocked'} successfully`,
       user,
     };
   }
-  
 
   async createUser(data: Partial<User>): Promise<User> {
     const user = new this.userModel(data);
@@ -203,10 +230,11 @@ export class UsersService {
   async findAll(filters?: {
     roles?: string[];
     statuses?: UserStatus[];
+    search?: string;
     page?: number;
     limit?: number;
   }) {
-    const { roles, statuses, page = 1, limit = 10 } = filters || {};
+    const { roles, statuses, search, page = 1, limit = 10 } = filters || {};
     const query: any = {};
 
     if (roles && roles.length > 0) {
@@ -214,6 +242,13 @@ export class UsersService {
     }
     if (statuses && statuses.length > 0) {
       query.status = { $in: statuses };
+    }
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
     }
 
     const skip = (page - 1) * limit;

@@ -3,7 +3,7 @@ import { Document } from 'mongoose';
 
 @Schema({ timestamps: true })
 export class StaticPage extends Document {
-  @Prop({ required: true, enum: ['about-us', 'terms', 'privacy-policy'] })
+  @Prop({ required: true, enum: ['about', 'terms', 'privacy'] })
   type: string; // Define the type of the page
 
   @Prop({ required: true })
