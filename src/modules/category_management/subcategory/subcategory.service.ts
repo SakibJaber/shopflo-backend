@@ -292,7 +292,7 @@ export class SubcategoryService {
         .populate('category', 'name slug')
         .lean();
 
-      return updated as Subcategory;
+      return updated as unknown as Subcategory;
     } catch (error) {
       await session.abortTransaction();
       throw error;

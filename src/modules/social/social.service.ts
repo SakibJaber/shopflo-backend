@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { SocialMedia } from './schema/social-media.schema';
 import { CreateSocialMediaDto } from 'src/modules/social/dto/create-social.dto';
 import { UpdateSocialMediaDto } from 'src/modules/social/dto/update-social.dto';
@@ -77,7 +77,7 @@ export class SocialMediaService {
   async updateOrder(ids: string[]) {
     const bulkOps = ids.map((id, index) => ({
       updateOne: {
-        filter: { _id: id },
+        filter: { _id: new Types.ObjectId(id) },
         update: { order: index },
       },
     }));
