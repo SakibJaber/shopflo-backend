@@ -27,31 +27,6 @@ import { NotificationService } from 'src/modules/notifications/notifications.ser
 export class NotificationController {
   constructor(private readonly notificationService: NotificationService) {}
 
-  // ==================== CREATE NOTIFICATION ====================
-  @Post()
-  async createNotification(
-    @Body() createNotificationDto: CreateNotificationDto,
-  ) {
-    try {
-      const notification = await this.notificationService.createNotification(
-        createNotificationDto,
-      );
-      return {
-        success: true,
-        statusCode: HttpStatus.CREATED,
-        message: 'Notification created successfully',
-        data: notification,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        statusCode: HttpStatus.BAD_REQUEST,
-        message: error.message || 'Failed to create notification',
-        data: null,
-      };
-    }
-  }
-
   // ==================== GET NOTIFICATIONS (ADMIN) ====================
   @Get()
   async getNotifications(@Query() queryDto: NotificationQueryDto) {

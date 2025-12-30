@@ -41,7 +41,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     // Check user status with specific error messages
     switch (user.status) {
-      case UserStatus.APPROVED:
+      case UserStatus.UNBLOCKED:
         return {
           userId: payload.userId,
           email: payload.email,

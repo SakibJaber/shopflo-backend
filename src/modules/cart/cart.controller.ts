@@ -2,7 +2,6 @@ import {
   Controller,
   Get,
   Post,
-  Patch,
   Delete,
   Body,
   Param,
@@ -13,7 +12,9 @@ import {
   BadRequestException,
   Put,
 } from '@nestjs/common';
-import { CartService } from './cart.service';
+import { CartCouponService } from 'src/modules/cart/services/cart-coupon.service';
+import { CartItemService } from 'src/modules/cart/services/cart-item.service';
+import { CartService } from 'src/modules/cart/services/cart.service';
 import { JwtAuthGuard } from 'src/common/guards/jwt.guard';
 import {
   AddRegularProductToCartDto,
@@ -21,6 +22,7 @@ import {
   AddDesignToCartDto,
 } from './dto/create-cart.dto';
 import { UpdateCartItemDto } from 'src/modules/cart/dto/update-cart.dto';
+import { ApplyCouponDto } from '../coupons/dto/apply-coupon.dto';
 import { Roles } from 'src/common/decorator/roles.decorator';
 import { Role } from 'src/common/enum/user_role.enum';
 import { RolesGuard } from 'src/common/guards/roles.guard';
@@ -28,7 +30,11 @@ import { RolesGuard } from 'src/common/guards/roles.guard';
 @Controller('carts')
 @UseGuards(JwtAuthGuard)
 export class CartController {
-  constructor(private readonly cartService: CartService) {}
+  constructor(
+    private readonly cartService: CartService,
+    private readonly cartItemService: CartItemService,
+    private readonly cartCouponService: CartCouponService,
+  ) {}
 
   // ==================== GET CART ====================
   @Get()
@@ -66,7 +72,7 @@ export class CartController {
     const userId = req.user.userId;
 
     try {
-      const cart = await this.cartService.addRegularProductToCart(
+      const cart = await this.cartItemService.addRegularProductToCart(
         userId,
         addRegularProductToCartDto,
       );
@@ -108,7 +114,7 @@ export class CartController {
     const userId = req.user.userId;
 
     try {
-      const cart = await this.cartService.addDesignToCart(
+      const cart = await this.cartItemService.addDesignToCart(
         userId,
         addDesignToCartDto,
       );
@@ -184,7 +190,7 @@ export class CartController {
     const userId = req.user.userId;
 
     try {
-      const cart = await this.cartService.updateCartItem(
+      const cart = await this.cartItemService.updateCartItem(
         userId,
         itemId,
         updateCartItemDto,
@@ -280,6 +286,78 @@ export class CartController {
         success: false,
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
         message: error.message || 'Failed to clear cart',
+        data: null,
+      };
+    }
+  }
+
+  // ==================== APPLY COUPON ====================
+  @Post('apply-coupon')
+  @Roles(Role.USER)
+  @UseGuards(RolesGuard)
+  async applyCoupon(@Body() applyCouponDto: ApplyCouponDto, @Req() req) {
+    const userId = req.user.userId;
+
+    try {
+      const cart = await this.cartCouponService.applyCoupon(
+        userId,
+        applyCouponDto.code,
+      );
+      return {
+        success: true,
+        statusCode: HttpStatus.OK,
+        message: 'Coupon applied successfully',
+        data: cart,
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        return {
+          success: false,
+          statusCode: HttpStatus.BAD_REQUEST,
+          message: error.message,
+          data: null,
+        };
+      }
+      return {
+        success: false,
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: error.message || 'Failed to apply coupon',
+        data: null,
+      };
+    }
+  }
+
+  // ==================== REMOVE COUPON ====================
+  @Post('remove-coupon')
+  @Roles(Role.USER)
+  @UseGuards(RolesGuard)
+  async removeCoupon(@Req() req) {
+    const userId = req.user.userId;
+
+    try {
+      const cart = await this.cartCouponService.removeCoupon(userId);
+      return {
+        success: true,
+        statusCode: HttpStatus.OK,
+        message: 'Coupon removed successfully',
+        data: cart,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        return {
+          success: false,
+          statusCode: HttpStatus.NOT_FOUND,
+          message: error.message,
+          data: null,
+        };
+      }
+      return {
+        success: false,
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: error.message || 'Failed to remove coupon',
         data: null,
       };
     }

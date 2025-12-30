@@ -39,18 +39,24 @@ export class IconsService {
   }
 
   // --- Create with optional icon upload ---
-  async create(dto: CreateIconDto, file?: Express.Multer.File): Promise<Icon> {
+  async create(
+    dto: CreateIconDto,
+    files?: Express.Multer.File[],
+  ): Promise<Icon> {
     try {
       const uniqueName = await this.ensureUniqueName(dto.iconName);
-      let iconUrl: string | undefined;
+      const iconUrls: string[] = [];
 
-      if (file) {
-        iconUrl = await this.fileUploadService.handleUpload(file);
+      if (files && files.length > 0) {
+        for (const file of files) {
+          const url = await this.fileUploadService.handleUpload(file);
+          iconUrls.push(url);
+        }
       }
 
       const created = await this.iconModel.create({
         iconName: uniqueName,
-        iconUrl,
+        iconUrls,
       });
 
       return created.toObject() as Icon;
@@ -116,7 +122,7 @@ export class IconsService {
   async update(
     id: string,
     dto: UpdateIconDto,
-    file?: Express.Multer.File,
+    files?: Express.Multer.File[],
   ): Promise<Icon> {
     const existing = await this.iconModel.findById(id);
     if (!existing) {
@@ -126,17 +132,34 @@ export class IconsService {
       });
     }
 
-    let iconUrl = existing.iconUrl;
-    if (file) {
-      const newUrl = await this.fileUploadService.handleUpload(file);
-      if (iconUrl && iconUrl !== newUrl) {
+    let iconUrls = existing.iconUrls || [];
+    const existingIconsToKeep = dto.existingIcons || [];
+
+    // Identify icons to delete: those in existing.iconUrls but NOT in existingIconsToKeep
+    const iconsToDelete = iconUrls.filter(
+      (url) => !existingIconsToKeep.includes(url),
+    );
+
+    // Delete removed icons from storage
+    if (iconsToDelete.length > 0) {
+      for (const url of iconsToDelete) {
         try {
-          await this.fileUploadService.deleteFile(iconUrl);
+          await this.fileUploadService.deleteFile(url);
         } catch {
           /* ignore cleanup errors */
         }
       }
-      iconUrl = newUrl;
+    }
+
+    // Start with the icons we want to keep
+    iconUrls = [...existingIconsToKeep];
+
+    // Upload and add new files
+    if (files && files.length > 0) {
+      for (const file of files) {
+        const url = await this.fileUploadService.handleUpload(file);
+        iconUrls.push(url);
+      }
     }
 
     const uniqueName =
@@ -144,7 +167,7 @@ export class IconsService {
         ? await this.ensureUniqueName(dto.iconName, id)
         : existing.iconName;
 
-    existing.set({ ...dto, iconName: uniqueName, iconUrl });
+    existing.set({ ...dto, iconName: uniqueName, iconUrls });
 
     try {
       await existing.save();
@@ -160,7 +183,7 @@ export class IconsService {
     }
   }
 
-  // --- Remove icon + delete uploaded file ---
+  // --- Remove icon + delete uploaded files ---
   async remove(id: string): Promise<void> {
     const deleted = await this.iconModel.findByIdAndDelete(id);
     if (!deleted) {
@@ -170,11 +193,13 @@ export class IconsService {
       });
     }
 
-    if (deleted.iconUrl) {
-      try {
-        await this.fileUploadService.deleteFile(deleted.iconUrl);
-      } catch {
-        /* ignore cleanup errors */
+    if (deleted.iconUrls && deleted.iconUrls.length > 0) {
+      for (const url of deleted.iconUrls) {
+        try {
+          await this.fileUploadService.deleteFile(url);
+        } catch {
+          /* ignore cleanup errors */
+        }
       }
     }
   }

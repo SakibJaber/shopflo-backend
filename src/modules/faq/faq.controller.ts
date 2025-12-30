@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+} from '@nestjs/common';
 import { FAQService } from './faq.service';
 import { CreateFAQDto } from './dto/create-faq.dto';
 import { UpdateFAQDto } from './dto/update-faq.dto';
@@ -10,7 +18,11 @@ export class FAQController {
   // Create a new FAQ
   @Post()
   async create(@Body() createFAQDto: CreateFAQDto) {
-    return this.faqService.create(createFAQDto);
+    const result = await this.faqService.create(createFAQDto);
+    return {
+      message: 'FAQ created successfully',
+      data: result,
+    };
   }
 
   // Get all FAQs
@@ -27,16 +39,21 @@ export class FAQController {
 
   // Update FAQ by ID
   @Patch(':id')
-  async update(
-    @Param('id') id: string,
-    @Body() updateFAQDto: UpdateFAQDto,
-  ) {
-    return this.faqService.update(id, updateFAQDto);
+  async update(@Param('id') id: string, @Body() updateFAQDto: UpdateFAQDto) {
+    const result = await this.faqService.update(id, updateFAQDto);
+    return {
+      message: 'FAQ updated successfully',
+      data: result,
+    };
   }
 
   // Delete FAQ by ID
   @Delete(':id')
   async remove(@Param('id') id: string) {
-    return this.faqService.remove(id);
+    const result = await this.faqService.remove(id);
+    return {
+      message: 'FAQ deleted successfully',
+      data: result,
+    };
   }
 }

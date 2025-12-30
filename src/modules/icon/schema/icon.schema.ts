@@ -8,8 +8,8 @@ export class Icon {
   @Prop({ required: true, trim: true, unique: true })
   iconName: string; // e.g., "Home"
 
-  @Prop()
-  iconUrl?: string; // uploaded icon file URL (optional)
+  @Prop({ type: [String], default: [] })
+  iconUrls: string[]; // uploaded icon file URLs (optional)
 }
 
 export const IconSchema = SchemaFactory.createForClass(Icon);

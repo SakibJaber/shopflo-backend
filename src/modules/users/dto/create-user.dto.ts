@@ -41,7 +41,7 @@ export class CreateUserDto {
   isVerified: boolean;
 
   @IsEnum(UserStatus)
-  status: UserStatus = UserStatus.APPROVED; // Default status is APPROVED
+  status: UserStatus = UserStatus.UNBLOCKED; // Default status is UNBLOCKED
 
   @IsOptional()
   @IsString()

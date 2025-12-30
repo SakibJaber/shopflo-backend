@@ -37,7 +37,12 @@ export class ReviewController {
     @Req() req: any,
     @UploadedFiles() files: Express.Multer.File[],
   ) {
-    return this.reviewService.create(createReviewDto, files, req.user);
+    return this.reviewService
+      .create(createReviewDto, files, req.user)
+      .then((result) => ({
+        message: 'Review submitted successfully',
+        data: result,
+      }));
   }
 
   @Get('product/:productId')
@@ -82,13 +87,21 @@ export class ReviewController {
     @Body() updateReviewDto: UpdateReviewDto,
     @UploadedFiles() files: Express.Multer.File[],
   ) {
-    return this.reviewService.update(id, updateReviewDto, files, req.user);
+    return this.reviewService
+      .update(id, updateReviewDto, files, req.user)
+      .then((result) => ({
+        message: 'Review updated successfully',
+        data: result,
+      }));
   }
 
   @Delete(':id')
   @Roles(Role.USER, Role.ADMIN)
   @UseGuards(JwtAuthGuard, RolesGuard)
   remove(@Param('id') id: string, @Req() req: any) {
-    return this.reviewService.remove(id, req.user);
+    return this.reviewService.remove(id, req.user).then((result) => ({
+      message: 'Review deleted successfully',
+      data: result,
+    }));
   }
 }

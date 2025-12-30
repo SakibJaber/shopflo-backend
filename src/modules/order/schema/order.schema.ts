@@ -85,6 +85,17 @@ export class Order extends Document {
   @Prop({ required: true, min: 0 })
   total: number;
 
+  @Prop({ type: Object, default: null })
+  coupon?: {
+    code: string;
+    discountType: string;
+    discountValue: number;
+    discountAmount: number;
+  };
+
+  @Prop({ default: 0 })
+  discountAmount: number;
+
   @Prop()
   stripePaymentIntentId?: string;
 

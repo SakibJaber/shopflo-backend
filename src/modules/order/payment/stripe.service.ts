@@ -23,9 +23,10 @@ export class StripeService {
     customerEmail?: string;
     successUrl: string;
     cancelUrl: string;
+    discountAmount?: number;
   }) {
     try {
-      return await this.stripe.checkout.sessions.create({
+      const sessionParams: Stripe.Checkout.SessionCreateParams = {
         payment_method_types: ['card'],
         line_items: params.lineItems,
         mode: 'payment',
@@ -34,7 +35,19 @@ export class StripeService {
         customer_email: params.customerEmail,
         client_reference_id: params.orderId,
         metadata: { orderId: params.orderId },
-      });
+      };
+
+      if (params.discountAmount && params.discountAmount > 0) {
+        const coupon = await this.stripe.coupons.create({
+          amount_off: Math.round(params.discountAmount * 100),
+          currency: 'usd',
+          duration: 'once',
+          name: 'Order Discount',
+        });
+        sessionParams.discounts = [{ coupon: coupon.id }];
+      }
+
+      return await this.stripe.checkout.sessions.create(sessionParams);
     } catch (error) {
       throw new InternalServerErrorException(
         error.message || 'Stripe session creation failed',

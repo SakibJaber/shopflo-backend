@@ -29,6 +29,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { NotificationType } from 'src/common/enum/notification_type.enum';
 import { NotificationPriority } from 'src/modules/notifications/schema/notification.schema';
 
@@ -94,12 +95,12 @@ export class AuthService {
       imageUrl = await this.fileUploadService.handleUpload(file);
     }
 
-    // Create the user as APPROVED but not verified (email verification required)
+    // Create the user as UNBLOCKED but not verified (email verification required)
     const createdUser = await this.usersService.createUser({
       ...dto,
       password: passwordHash,
       imageUrl,
-      status: UserStatus.APPROVED,
+      status: UserStatus.UNBLOCKED,
       isVerified: false,
     });
 
@@ -529,7 +530,19 @@ export class AuthService {
     if (!user) {
       throw new BadRequestException('User not found');
     }
-    return this.sanitize(user); // Return sanitized data
+    return this.sanitize(user);
+  }
+
+  async updateProfile(
+    userId: string,
+    dto: UpdateProfileDto,
+    file?: Express.Multer.File,
+  ) {
+    const updatedUser = await this.usersService.updateUser(userId, dto, file, {
+      userId,
+      role: Role.USER,
+    });
+    return this.sanitize(updatedUser);
   }
 
   // OAuth validation method for Google Strategy
@@ -553,7 +566,7 @@ export class AuthService {
         password: '', // OAuth users don't have a password
         role: Role.USER, // Default role
         isVerified: true, // OAuth emails are pre-verified
-        status: UserStatus.APPROVED,
+        status: UserStatus.UNBLOCKED,
       });
 
       // Fetch the created user as a document

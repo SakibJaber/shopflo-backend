@@ -156,13 +156,7 @@ export class ProductController {
 
   @Patch(':id')
   @UseGlobalFileInterceptor({
-    fieldName: [
-      'image',
-      'frontImage',
-      'backImage',
-      'leftImage',
-      'rightImage',
-    ],
+    fieldName: ['image', 'frontImage', 'backImage', 'leftImage', 'rightImage'],
     maxCount: 1,
   })
   async update(

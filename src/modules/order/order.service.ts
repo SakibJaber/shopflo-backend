@@ -27,7 +27,8 @@ import {
 } from 'src/modules/designs/schema/design.schema';
 import { NotificationService } from 'src/modules/notifications/notifications.service';
 import { ProductStatus } from 'src/common/enum/product.status.enum';
-import { CartService } from '../cart/cart.service';
+import { CartService } from '../cart/services/cart.service';
+import { CouponsService } from '../coupons/coupons.service';
 
 @Injectable()
 export class OrderService {
@@ -41,7 +42,8 @@ export class OrderService {
     @InjectModel(Product.name) private readonly productModel: Model<Product>,
     @InjectModel(Design.name) private readonly designModel: Model<Design>,
     private readonly notificationService: NotificationService,
-    private readonly cartService: CartService, // Inject CartService
+    private readonly cartService: CartService,
+    private readonly couponsService: CouponsService,
   ) {}
 
   async create(userId: string, createOrderDto: CreateOrderDto) {
@@ -115,7 +117,48 @@ export class OrderService {
       }),
     );
 
-    const total = subtotal;
+    let total = subtotal;
+    let couponDetails: any = null;
+    let discountAmount = 0;
+
+    // Apply coupon if present in cart
+    if (cart.coupon) {
+      try {
+        const coupon = await this.couponsService.validateCoupon(
+          cart.coupon,
+          userId,
+          subtotal,
+          orderItems,
+        );
+
+        discountAmount = this.couponsService.calculateDiscount(
+          coupon,
+          subtotal,
+          orderItems,
+        );
+
+        total = Math.max(0, subtotal - discountAmount);
+
+        couponDetails = {
+          code: coupon.code,
+          discountType: coupon.discountType,
+          discountValue: coupon.discountValue,
+          discountAmount,
+        };
+
+        // Increment usage count
+        await this.couponsService.incrementUsageCount(
+          (coupon as any)._id.toString(),
+          userId,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Coupon validation failed during order creation: ${error.message}`,
+        );
+        // Proceed without coupon if validation fails at this stage (or throw error if strict)
+        // For now, we'll proceed without discount to avoid blocking order if coupon just expired
+      }
+    }
 
     // Validate stock availability (additional safety check)
     // await this.validateStockAvailability(orderItems);
@@ -129,6 +172,8 @@ export class OrderService {
       paymentStatus: PaymentStatus.PENDING,
       subtotal,
       total,
+      coupon: couponDetails,
+      discountAmount,
       status: OrderStatus.PENDING,
       idempotencyKey: createOrderDto.idempotencyKey || uuidv4(),
       orderDate: new Date(),
@@ -147,41 +192,6 @@ export class OrderService {
 
     return savedOrder;
   }
-
-  // private async validateStockAvailability(orderItems: any[]) {
-  //   for (const item of orderItems) {
-  //     const product = await this.productModel.findById(item.product).lean(); // .lean() returns plain JS object
-
-  //     if (!product) {
-  //       throw new ConflictException(`Product ${item.product} not found`);
-  //     }
-
-  //     // If your product model uses a status enum (STOCKOUT / INSTOCK), check that.
-  //     // Treat STOCKOUT as unavailable regardless of quantities requested.
-  //     if ((product as any).status === ProductStatus.STOCKOUT) {
-  //       throw new ConflictException(
-  //         `Product ${(product as any).productName || item.product} is out of stock`,
-  //       );
-  //     }
-
-  //     // If you also want to support numeric stock (optional), respect it when present:
-  //     const prodAny = product as any;
-  //     if (typeof prodAny.stock === 'number') {
-  //       // Ensure there is enough numeric stock for each size/variant requested.
-  //       for (const vq of item.variantQuantities) {
-  //         for (const sq of vq.sizeQuantities) {
-  //           if (prodAny.stock < sq.quantity) {
-  //             throw new ConflictException(
-  //               `Insufficient stock for ${prodAny.productName || item.product}. Available: ${prodAny.stock}, Requested: ${sq.quantity}`,
-  //             );
-  //           }
-  //         }
-  //       }
-  //     }
-
-  //     // Otherwise: no numeric stock present and status is not STOCKOUT — treat as available.
-  //   }
-  // }
 
   private async updateProductStock(
     orderItems: any[],

@@ -43,7 +43,12 @@ export class ResponseInterceptor<T>
         }
 
         // Handle successful responses
-        const message = data?.message || 'Request successful';
+        let message = 'Request successful';
+
+        // Only use data.message if it's explicitly provided and NOT part of a DB entity (which usually has _id)
+        if (data?.message && !data._id) {
+          message = data.message;
+        }
         const meta = data?.meta || null;
 
         return {

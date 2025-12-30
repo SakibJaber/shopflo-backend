@@ -9,6 +9,7 @@ import {
   Product,
   ProductSchema,
 } from 'src/modules/products/schema/product.schema';
+import { Order, OrderSchema } from 'src/modules/order/schema/order.schema';
 import { UsersModule } from 'src/modules/users/users.module';
 
 @Module({
@@ -16,6 +17,7 @@ import { UsersModule } from 'src/modules/users/users.module';
     MongooseModule.forFeature([
       { name: Review.name, schema: ReviewSchema },
       { name: Product.name, schema: ProductSchema },
+      { name: Order.name, schema: OrderSchema },
     ]),
     FileUploadModule,
     NotificationsModule,

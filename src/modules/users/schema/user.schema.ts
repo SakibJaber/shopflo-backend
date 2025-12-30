@@ -31,7 +31,7 @@ export class User {
   @Prop({ default: false })
   isVerified: boolean;
 
-  @Prop({ enum: UserStatus, default: UserStatus.APPROVED })
+  @Prop({ enum: UserStatus, default: UserStatus.UNBLOCKED })
   status: UserStatus;
 
   @Prop()

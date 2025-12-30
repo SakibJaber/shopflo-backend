@@ -31,29 +31,41 @@ export class StaticPageController {
   @Roles(Role.ADMIN)
   @UseGuards(JwtAuthGuard, RolesGuard)
   async updateAbout(@Body() updateStaticPageDto: UpdateStaticPageDto) {
-    return this.staticPageService.updatePageByType(
+    const result = await this.staticPageService.updatePageByType(
       'about',
       updateStaticPageDto,
     );
+    return {
+      message: 'About Us page updated successfully',
+      data: result,
+    };
   }
 
   @Put('terms')
   @Roles(Role.ADMIN)
   @UseGuards(JwtAuthGuard, RolesGuard)
   async updateTerms(@Body() updateStaticPageDto: UpdateStaticPageDto) {
-    return this.staticPageService.updatePageByType(
+    const result = await this.staticPageService.updatePageByType(
       'terms',
       updateStaticPageDto,
     );
+    return {
+      message: 'Terms & Conditions updated successfully',
+      data: result,
+    };
   }
 
   @Put('privacy')
   @Roles(Role.ADMIN)
   @UseGuards(JwtAuthGuard, RolesGuard)
   async updatePrivacy(@Body() updateStaticPageDto: UpdateStaticPageDto) {
-    return this.staticPageService.updatePageByType(
+    const result = await this.staticPageService.updatePageByType(
       'privacy',
       updateStaticPageDto,
     );
+    return {
+      message: 'Privacy Policy updated successfully',
+      data: result,
+    };
   }
 }

@@ -19,12 +19,12 @@ import {
   ProductSchema,
 } from 'src/modules/products/schema/product.schema';
 import { Design, DesignSchema } from 'src/modules/designs/schema/design.schema';
-import * as express from 'express';
 import { CartModule } from 'src/modules/cart/cart.module';
 import { NotificationsModule } from 'src/modules/notifications/notifications.module';
 import { CheckoutController } from 'src/modules/order/payment/checkout.controller';
 import { StripeWebhookController } from 'src/modules/order/payment/stripe-webhook.controller';
 import { StripeService } from 'src/modules/order/payment/stripe.service';
+import { CouponsModule } from 'src/modules/coupons/coupons.module';
 
 @Module({
   imports: [
@@ -38,6 +38,7 @@ import { StripeService } from 'src/modules/order/payment/stripe.service';
     ]),
     CartModule,
     NotificationsModule,
+    CouponsModule,
   ],
   controllers: [OrdersController, StripeWebhookController, CheckoutController],
   providers: [OrderService, StripeService],

@@ -58,19 +58,19 @@ export class UsersController {
   @Roles(Role.ADMIN)
   async approveUser(@Param('id') id: string) {
     try {
-      await this.usersService.updateStatus(id, UserStatus.APPROVED);
+      await this.usersService.updateStatus(id, UserStatus.UNBLOCKED);
       const updatedUser = await this.usersService.findById(id);
       return {
         success: true,
         statusCode: 200,
-        message: 'User approved successfully',
+        message: 'User unblocked successfully',
         data: updatedUser,
       };
     } catch (error) {
       return {
         success: false,
         statusCode: 400,
-        message: error.message || 'Unable to approve user',
+        message: error.message || 'Unable to unblock user',
         data: null,
       };
     }
@@ -86,7 +86,10 @@ export class UsersController {
         throw new NotFoundException('User not found');
       }
 
-      const newStatus = user.status === UserStatus.BLOCKED ? UserStatus.APPROVED : UserStatus.BLOCKED;
+      const newStatus =
+        user.status === UserStatus.BLOCKED
+          ? UserStatus.UNBLOCKED
+          : UserStatus.BLOCKED;
       await this.usersService.updateStatus(id, newStatus);
 
       return {

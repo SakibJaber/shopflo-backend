@@ -20,6 +20,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { GoogleAuthGuard } from 'src/common/guards/google.guard';
 import { JwtAuthGuard } from 'src/common/guards/jwt.guard';
 import { RefreshTokenGuard } from 'src/common/guards/refresh-token.guard';
@@ -287,6 +288,36 @@ export class AuthController {
         success: true,
         statusCode: HttpStatus.OK,
         message: 'Profile fetched successfully',
+        data: user,
+      };
+    } catch (error) {
+      throw new BadRequestException({
+        success: false,
+        statusCode: error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+        message: error.message,
+      });
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile')
+  @HttpCode(HttpStatus.OK)
+  @UseGlobalFileInterceptor({ fieldName: 'image' })
+  async updateProfile(
+    @Req() req: any,
+    @Body() dto: UpdateProfileDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    try {
+      const user = await this.authService.updateProfile(
+        req.user.userId,
+        dto,
+        file,
+      );
+      return {
+        success: true,
+        statusCode: HttpStatus.OK,
+        message: 'Profile updated successfully',
         data: user,
       };
     } catch (error) {

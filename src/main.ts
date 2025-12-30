@@ -25,20 +25,13 @@ async function bootstrap() {
   app.useGlobalInterceptors(new ResponseInterceptor());
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  // Explicitly allow only your known frontends
-  const allowedOrigins = ['http://10.10.20.60:3008', 'http://10.10.20.60:3000'];
-
+  // CORS configuration - Allow all origins for development
+  // TODO: Restrict origins in production
   app.enableCors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('CORS policy violation: Origin not allowed'), false);
-      }
-    },
+    origin: true, // Allow all origins
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
   });
 
   // Global prefix

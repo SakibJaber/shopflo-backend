@@ -17,8 +17,12 @@ export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Post()
-  create(@Body() dto: CreateAdminDto) {
-    return this.adminService.create(dto);
+  async create(@Body() dto: CreateAdminDto) {
+    const result = await this.adminService.create(dto);
+    return {
+      message: 'Admin created successfully',
+      data: result,
+    };
   }
 
   @Get()
@@ -27,7 +31,11 @@ export class AdminController {
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string) {
-    return this.adminService.delete(id);
+  async delete(@Param('id') id: string) {
+    const result = await this.adminService.delete(id);
+    return {
+      message: 'Admin deleted successfully',
+      data: result,
+    };
   }
 }

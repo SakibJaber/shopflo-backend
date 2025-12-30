@@ -24,6 +24,7 @@ import { ChartModule } from './chart/chart.module';
 import { FavoriteModule } from './favorite/favorite.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { CouponsModule } from './coupons/coupons.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     FavoriteModule,
     NotificationsModule,
     DashboardModule,
+    CouponsModule,
   ],
 })
 export class DomainModule {}

@@ -61,9 +61,18 @@ export class Cart {
 
   @Prop({ default: true })
   isActive: boolean;
+
+  @Prop({ type: String, default: null })
+  coupon?: string;
+
+  @Prop({ default: 0 })
+  discountTotal: number;
 }
 
 export const VariantSizeQuantitySchema =
   SchemaFactory.createForClass(VariantSizeQuantity);
 export const CartItemSchema = SchemaFactory.createForClass(CartItem);
 export const CartSchema = SchemaFactory.createForClass(Cart);
+
+// Add compound index for fast cart lookups
+CartSchema.index({ user: 1, isActive: 1 });

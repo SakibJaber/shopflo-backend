@@ -1,9 +1,8 @@
-// src/modules/banners/banners.controller.ts
 import {
   Controller,
   Get,
   Post,
-  Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -57,7 +56,10 @@ export class BannersController {
   }
 
   @Get()
-  async findAll(@Query('page') page: number = 1, @Query('limit') limit: number = 10) {
+  async findAll(
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 10,
+  ) {
     try {
       const result = await this.bannersService.findAll(page, limit);
 
@@ -120,7 +122,7 @@ export class BannersController {
     }
   }
 
-  @Put(':id')
+  @Patch(':id')
   @UseInterceptors(FileInterceptor('image'))
   async update(
     @Param('id') id: string,
@@ -128,7 +130,11 @@ export class BannersController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     try {
-      const banner = await this.bannersService.update(id, updateBannerDto, file);
+      const banner = await this.bannersService.update(
+        id,
+        updateBannerDto,
+        file,
+      );
 
       return {
         success: true,

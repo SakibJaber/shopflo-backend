@@ -6,7 +6,7 @@ import {
   Patch,
   Param,
   Body,
-  UploadedFile,
+  UploadedFiles,
   HttpStatus,
   DefaultValuePipe,
   ParseIntPipe,
@@ -22,13 +22,13 @@ export class IconsController {
   constructor(private readonly iconsService: IconsService) {}
 
   @Post()
-  @UseGlobalFileInterceptor({ fieldName: 'icon', maxCount: 1 })
+  @UseGlobalFileInterceptor({ fieldName: 'icon', maxCount: 15 })
   async create(
     @Body() dto: CreateIconDto,
-    @UploadedFile() file?: Express.Multer.File,
+    @UploadedFiles() files?: Express.Multer.File[],
   ) {
     try {
-      const icon = await this.iconsService.create(dto, file);
+      const icon = await this.iconsService.create(dto, files);
       return {
         success: true,
         statusCode: HttpStatus.CREATED,
@@ -105,14 +105,14 @@ export class IconsController {
   }
 
   @Patch(':id')
-  @UseGlobalFileInterceptor({ fieldName: 'icon', maxCount: 1 })
+  @UseGlobalFileInterceptor({ fieldName: 'icon', maxCount: 15 })
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateIconDto,
-    @UploadedFile() file?: Express.Multer.File,
+    @UploadedFiles() files?: Express.Multer.File[],
   ) {
     try {
-      const updated = await this.iconsService.update(id, dto, file);
+      const updated = await this.iconsService.update(id, dto, files);
       return {
         success: true,
         statusCode: HttpStatus.OK,

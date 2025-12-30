@@ -24,6 +24,8 @@ import {
   Product,
   ProductDocument,
 } from 'src/modules/products/schema/product.schema';
+import { Order } from 'src/modules/order/schema/order.schema';
+import { OrderStatus } from 'src/common/enum/order_status.enum';
 
 // ---- helper: robust number coercion for multipart/form-data ----
 // Accepts "4" or ["4"] or 4, returns number or null if invalid.
@@ -39,6 +41,7 @@ export class ReviewService {
     @InjectModel(Review.name) private readonly reviewModel: Model<Review>,
     @InjectModel(Product.name)
     private readonly productModel: Model<ProductDocument>,
+    @InjectModel(Order.name) private readonly orderModel: Model<Order>,
     private readonly fileUploadService: FileUploadService,
     private readonly notificationService: NotificationService,
     private readonly usersService: UsersService,
@@ -97,6 +100,21 @@ export class ReviewService {
       this.assertValidObjectId(createReviewDto.product, 'product');
       const product = await this.productModel.findById(createReviewDto.product);
       if (!product) throw new NotFoundException('Product not found');
+
+      // Verify user has purchased and received the product
+      if (user?.userId) {
+        const hasPurchased = await this.orderModel.exists({
+          user: new Types.ObjectId(user.userId),
+          'items.product': new Types.ObjectId(createReviewDto.product),
+          status: OrderStatus.DELIVERED,
+        });
+
+        if (!hasPurchased) {
+          throw new ForbiddenException(
+            'You can only review products you have purchased and received.',
+          );
+        }
+      }
 
       // Coerce & validate rating (handles multipart form-data)
       const ratingNum = coerceNumber((createReviewDto as any).rating);
@@ -233,7 +251,7 @@ export class ReviewService {
 
     return { items, total, avgRating, totalReviews };
   }
-  
+
   async findOne(id: string) {
     this.assertValidObjectId(id, 'review');
 
@@ -264,7 +282,7 @@ export class ReviewService {
             { projection: { productName: 1, rating: 1, reviewCount: 1 } },
           );
       } else {
-        populatedReview.product = null; 
+        populatedReview.product = null;
       }
 
       return populatedReview;

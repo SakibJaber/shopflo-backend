@@ -3,8 +3,6 @@ import {
   ForbiddenException,
   HttpException,
   Injectable,
-  Inject,
-  forwardRef,
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
@@ -18,7 +16,6 @@ import { NotificationType } from 'src/common/enum/notification_type.enum';
 import { Role } from 'src/common/enum/user_role.enum';
 import { UpdateUserDto } from 'src/modules/users/dto/update-user.dto';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
-import { AuthService } from 'src/modules/auth/auth.service';
 
 @Injectable()
 export class UsersService {
@@ -87,7 +84,7 @@ export class UsersService {
         );
       }
     } else if (
-      status === UserStatus.APPROVED &&
+      status === UserStatus.UNBLOCKED &&
       previousStatus === UserStatus.BLOCKED
     ) {
       //  NOTIFICATION: Notify user about account unblocking
@@ -100,7 +97,7 @@ export class UsersService {
           priority: NotificationPriority.HIGH,
           metadata: {
             unblockedTime: new Date().toISOString(),
-            status: 'APPROVED',
+            status: 'UNBLOCKED',
           },
         });
       } catch (notificationError) {
@@ -212,7 +209,7 @@ export class UsersService {
     if (!user) throw new NotFoundException('User not found');
 
     const isBlocked = user.status === UserStatus.BLOCKED;
-    const newStatus = isBlocked ? UserStatus.APPROVED : UserStatus.BLOCKED;
+    const newStatus = isBlocked ? UserStatus.UNBLOCKED : UserStatus.BLOCKED;
 
     await this.updateStatus(id, newStatus);
 
@@ -305,9 +302,8 @@ export class UsersService {
   }
 
   async getAdminUsers(): Promise<UserDocument[]> {
-    // FIX: role must use enum; filter by approved status (no isActive field in schema)
     return this.userModel
-      .find({ role: Role.ADMIN, status: UserStatus.APPROVED })
+      .find({ role: Role.ADMIN, status: UserStatus.UNBLOCKED })
       .exec();
   }
 }

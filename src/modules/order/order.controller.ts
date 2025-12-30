@@ -24,7 +24,7 @@ import { ConfigService } from '@nestjs/config';
 import { RolesGuard } from 'src/common/guards/roles.guard';
 import { Role } from 'src/common/enum/user_role.enum';
 import { PaymentMethod, PaymentStatus } from 'src/common/enum/payment.enum';
-import { CartService } from 'src/modules/cart/cart.service';
+import { CartService } from 'src/modules/cart/services/cart.service';
 import { v4 as uuidv4 } from 'uuid';
 import { OrderStatus } from 'src/common/enum/order_status.enum';
 import { Roles } from 'src/common/decorator/roles.decorator';
@@ -56,7 +56,8 @@ export class OrdersController {
     }
 
     // Generate idempotency key
-    const idempotencyKey = headerKey || createOrderDto.idempotencyKey || uuidv4();
+    const idempotencyKey =
+      headerKey || createOrderDto.idempotencyKey || uuidv4();
     createOrderDto.idempotencyKey = idempotencyKey;
 
     // Create order
@@ -68,23 +69,23 @@ export class OrdersController {
     const cancelUrl = `${frontendUrl}/checkout/cancel?orderId=${order._id}`;
 
     // Prepare line items for Stripe
-    const lineItems = order.items.flatMap(item =>
-      item.variantQuantities.flatMap(vq =>
-        vq.sizeQuantities.map(sq => ({
+    const lineItems = order.items.flatMap((item) =>
+      item.variantQuantities.flatMap((vq) =>
+        vq.sizeQuantities.map((sq) => ({
           price_data: {
             currency: 'usd',
             product_data: {
               name: (item as any).product?.productName || 'Product',
               description: `Size: ${sq.size} - Quantity: ${sq.quantity}`,
-              // images: item.isDesignItem && (item as any).design?.frontImage 
-              //   ? [(item as any).design.frontImage] 
+              // images: item.isDesignItem && (item as any).design?.frontImage
+              //   ? [(item as any).design.frontImage]
               //   : [(item as any).product?.thumbnail],
             },
             unit_amount: Math.round(sq.price * 100),
           },
           quantity: sq.quantity,
-        }))
-      )
+        })),
+      ),
     );
 
     const session = await this.stripeService.createCheckoutSession({
@@ -93,6 +94,7 @@ export class OrdersController {
       customerEmail: req.user.email,
       successUrl,
       cancelUrl,
+      discountAmount: order.discountAmount,
     });
 
     return {
@@ -127,7 +129,12 @@ export class OrdersController {
       orderStatus = status as OrderStatus;
     }
 
-    const result = await this.ordersService.findAll(page, limit, search, orderStatus);
+    const result = await this.ordersService.findAll(
+      page,
+      limit,
+      search,
+      orderStatus,
+    );
     return {
       success: true,
       statusCode: HttpStatus.OK,
@@ -144,7 +151,11 @@ export class OrdersController {
     @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
   ) {
     const userId = req.user.userId;
-    const result = await this.ordersService.getOrdersByUser(userId, page, limit);
+    const result = await this.ordersService.getOrdersByUser(
+      userId,
+      page,
+      limit,
+    );
     return {
       success: true,
       statusCode: HttpStatus.OK,
@@ -197,7 +208,10 @@ export class OrdersController {
       throw new BadRequestException('Invalid order status');
     }
 
-    const order = await this.ordersService.updateStatus(id, updateOrderStatusDto);
+    const order = await this.ordersService.updateStatus(
+      id,
+      updateOrderStatusDto,
+    );
     return {
       success: true,
       statusCode: HttpStatus.OK,
@@ -211,7 +225,8 @@ export class OrdersController {
     const userId = req.user.userId;
     const order = await this.ordersService.findOne(orderId);
 
-    const ownerId = (order.user as any)?._id?.toString?.() ?? order.user.toString();
+    const ownerId =
+      (order.user as any)?._id?.toString?.() ?? order.user.toString();
     if (ownerId !== userId) throw new NotFoundException('Order not found');
 
     if (order.paymentStatus === PaymentStatus.SUCCEEDED) {
@@ -222,9 +237,9 @@ export class OrdersController {
     const successUrl = `${frontendUrl}/checkout/success?orderId=${order._id}`;
     const cancelUrl = `${frontendUrl}/checkout/cancel?orderId=${order._id}`;
 
-    const lineItems = order.items.flatMap(item =>
-      item.variantQuantities.flatMap(vq =>
-        vq.sizeQuantities.map(sq => ({
+    const lineItems = order.items.flatMap((item) =>
+      item.variantQuantities.flatMap((vq) =>
+        vq.sizeQuantities.map((sq) => ({
           price_data: {
             currency: 'usd',
             product_data: {
@@ -234,8 +249,8 @@ export class OrdersController {
             unit_amount: Math.round(sq.price * 100),
           },
           quantity: sq.quantity,
-        }))
-      )
+        })),
+      ),
     );
 
     const session = await this.stripeService.createCheckoutSession({
@@ -244,6 +259,7 @@ export class OrdersController {
       customerEmail: req.user.email,
       successUrl,
       cancelUrl,
+      discountAmount: order.discountAmount,
     });
 
     return {

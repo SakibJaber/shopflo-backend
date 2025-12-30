@@ -312,7 +312,7 @@ export class ProductService {
       if (conditions.length > 0) {
         filter.$and = conditions;
       }
-      
+
       // Handle sorting
       const sortOptions: any = {};
       if (sortBy) {

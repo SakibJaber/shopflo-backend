@@ -21,8 +21,12 @@ export class ContactController {
   constructor(private readonly contactService: ContactService) {}
 
   @Post()
-  createContact(@Body() createContactDto: CreateContactDto) {
-    return this.contactService.createContact(createContactDto);
+  async createContact(@Body() createContactDto: CreateContactDto) {
+    const result = await this.contactService.createContact(createContactDto);
+    return {
+      message: 'Message sent successfully',
+      data: result,
+    };
   }
 
   @Get('messages')
