@@ -10,7 +10,6 @@ import {
   UseGuards,
   Req,
   HttpStatus,
-  ParseIntPipe,
   NotFoundException,
 } from '@nestjs/common';
 
@@ -31,14 +30,7 @@ export class NotificationController {
   @Get()
   async getNotifications(@Query() queryDto: NotificationQueryDto) {
     try {
-      const page = queryDto.page || 1;
-      const limit = queryDto.limit || 20;
-
-      const result = await this.notificationService.getNotifications(
-        queryDto,
-        page,
-        limit,
-      );
+      const result = await this.notificationService.getNotifications(queryDto);
       return {
         success: true,
         statusCode: HttpStatus.OK,
@@ -57,18 +49,11 @@ export class NotificationController {
 
   // ==================== GET MY NOTIFICATIONS ====================
   @Get('my')
-  async getMyNotifications(
-    @Req() req,
-    @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
-    @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 20,
-  ) {
+  async getMyNotifications(@Req() req) {
     try {
       const userId = req.user.userId;
-      const result = await this.notificationService.getUserNotifications(
-        userId,
-        page,
-        limit,
-      );
+      const result =
+        await this.notificationService.getUserNotifications(userId);
       return {
         success: true,
         statusCode: HttpStatus.OK,
@@ -80,6 +65,28 @@ export class NotificationController {
         success: false,
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
         message: error.message || 'Failed to fetch notifications',
+        data: null,
+      };
+    }
+  }
+
+  // ==================== SEED NOTIFICATIONS ====================
+  @Post('seed')
+  async seedNotifications(@Req() req) {
+    try {
+      const userId = req.user?.userId;
+      const result = await this.notificationService.seedNotifications(userId);
+      return {
+        success: true,
+        statusCode: HttpStatus.CREATED,
+        message: '5 dummy notifications seeded successfully',
+        data: result,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: error.message || 'Failed to seed notifications',
         data: null,
       };
     }
@@ -102,6 +109,28 @@ export class NotificationController {
         success: false,
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
         message: error.message || 'Failed to fetch unread count',
+        data: null,
+      };
+    }
+  }
+
+  // ==================== MARK ALL AS READ ====================
+  @Put('read-all')
+  async markAllAsRead(@Req() req) {
+    try {
+      const userId = req.user.userId;
+      const result = await this.notificationService.markAllAsRead(userId);
+      return {
+        success: true,
+        statusCode: HttpStatus.OK,
+        message: 'All notifications marked as read',
+        data: result,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: error.message || 'Failed to mark all notifications as read',
         data: null,
       };
     }
@@ -166,28 +195,6 @@ export class NotificationController {
     }
   }
 
-  // ==================== MARK ALL AS READ ====================
-  @Put('read-all')
-  async markAllAsRead(@Req() req) {
-    try {
-      const userId = req.user.userId;
-      const result = await this.notificationService.markAllAsRead(userId);
-      return {
-        success: true,
-        statusCode: HttpStatus.OK,
-        message: 'All notifications marked as read',
-        data: result,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Failed to mark all notifications as read',
-        data: null,
-      };
-    }
-  }
-
   // ==================== ARCHIVE NOTIFICATION ====================
   @Put(':id/archive')
   async archiveNotification(@Param('id') id: string) {
@@ -213,6 +220,41 @@ export class NotificationController {
         success: false,
         statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
         message: error.message || 'Failed to archive notification',
+        data: null,
+      };
+    }
+  }
+
+  // ==================== UPDATE NOTIFICATION ====================
+  @Put(':id')
+  async updateNotification(
+    @Param('id') id: string,
+    @Body() updateNotificationDto: UpdateNotificationDto,
+  ) {
+    try {
+      const notification = await this.notificationService.updateNotification(
+        id,
+        updateNotificationDto,
+      );
+      return {
+        success: true,
+        statusCode: HttpStatus.OK,
+        message: 'Notification updated successfully',
+        data: notification,
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        return {
+          success: false,
+          statusCode: HttpStatus.NOT_FOUND,
+          message: error.message,
+          data: null,
+        };
+      }
+      return {
+        success: false,
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: error.message || 'Failed to update notification',
         data: null,
       };
     }

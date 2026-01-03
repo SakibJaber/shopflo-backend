@@ -165,6 +165,27 @@ export class OrdersController {
     };
   }
 
+  @Get('complete-orders')
+  async getUserCompleteOrders(
+    @Req() req,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+  ) {
+    const userId = req.user.userId;
+    const result = await this.ordersService.getCompleteOrdersByUser(
+      userId,
+      page,
+      limit,
+    );
+    return {
+      success: true,
+      statusCode: HttpStatus.OK,
+      message: 'User complete orders fetched successfully',
+      data: result.data,
+      meta: result.meta,
+    };
+  }
+
   @Get('summary')
   async getOrderSummary(@Req() req) {
     const userId = req.user.userId;

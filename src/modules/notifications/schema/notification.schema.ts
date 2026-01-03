@@ -2,10 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { NotificationType } from 'src/common/enum/notification_type.enum';
 
-
 export type NotificationDocument = Notification & Document;
-
-
 
 export enum NotificationStatus {
   UNREAD = 'UNREAD',
@@ -52,7 +49,7 @@ export class Notification {
   @Prop({ type: String })
   relatedModel: string; // Model name of the related entity
 
-  @Prop({ default: Date.now })
+  @Prop({ default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) })
   expiresAt: Date;
 
   @Prop({ default: true })

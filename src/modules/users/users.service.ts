@@ -16,11 +16,50 @@ import { NotificationType } from 'src/common/enum/notification_type.enum';
 import { Role } from 'src/common/enum/user_role.enum';
 import { UpdateUserDto } from 'src/modules/users/dto/update-user.dto';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
+import {
+  Address,
+  AddressDocument,
+} from 'src/modules/address/schema/address.schema';
+import { Cart, CartDocument } from 'src/modules/cart/schema/cart.schema';
+import {
+  Favorite,
+  FavoriteDocument,
+} from 'src/modules/favorite/schema/favorite,schema';
+import {
+  Review,
+  ReviewDocument,
+} from 'src/modules/review/schema/review.schema';
+import { Order } from 'src/modules/order/schema/order.schema';
+import {
+  Notification,
+  NotificationDocument,
+} from 'src/modules/notifications/schema/notification.schema';
+import {
+  Design,
+  DesignDocument,
+} from 'src/modules/designs/schema/design.schema';
+import { Blog, BlogDocument } from 'src/modules/blogs/schema/blog.schema';
+import { Chart, ChartDocument } from 'src/modules/chart/schema/chart.schema';
+import {
+  Coupon,
+  CouponDocument,
+} from 'src/modules/coupons/schema/coupon.schema';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(Address.name) private addressModel: Model<AddressDocument>,
+    @InjectModel(Cart.name) private cartModel: Model<CartDocument>,
+    @InjectModel(Favorite.name) private favoriteModel: Model<FavoriteDocument>,
+    @InjectModel(Review.name) private reviewModel: Model<ReviewDocument>,
+    @InjectModel(Order.name) private orderModel: Model<Order>,
+    @InjectModel(Notification.name)
+    private notificationModel: Model<NotificationDocument>,
+    @InjectModel(Design.name) private designModel: Model<DesignDocument>,
+    @InjectModel(Blog.name) private blogModel: Model<BlogDocument>,
+    @InjectModel(Chart.name) private chartModel: Model<ChartDocument>,
+    @InjectModel(Coupon.name) private couponModel: Model<CouponDocument>,
     private notificationService: NotificationService,
     private fileUploadService: FileUploadService,
   ) {}
@@ -274,31 +313,62 @@ export class UsersService {
     }
   }
 
-  // Delete a user permanently
+  // Delete a user permanently and all related data
   async deleteUser(id: string) {
     const user = await this.userModel.findById(id);
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
-    // 🔔 NOTIFICATION: Notify user about account deletion (if needed)
-    try {
-      await this.notificationService.createNotification({
-        recipient: (user as any)._id?.toString(),
-        title: 'Account Deleted',
-        message: 'Your account has been permanently deleted from our system.',
-        type: NotificationType.ACCOUNT_DELETED,
-        priority: NotificationPriority.HIGH,
-      });
-    } catch (notificationError) {
-      console.error(
-        'Failed to send account deletion notification:',
-        notificationError,
-      );
-    }
+    const session = await this.userModel.db.startSession();
+    session.startTransaction();
 
-    const result = await this.userModel.findByIdAndDelete(id);
-    return result;
+    try {
+      // 1. Delete profile image from storage
+      if (user.imageUrl) {
+        try {
+          await this.fileUploadService.deleteFile(user.imageUrl);
+        } catch (error) {
+          console.error('Failed to delete user profile image:', error);
+        }
+      }
+
+      // 2. Delete related data in other collections
+      await this.addressModel.deleteMany({ user: id }).session(session);
+      await this.cartModel.deleteMany({ user: id }).session(session);
+      await this.favoriteModel.deleteMany({ user: id }).session(session);
+      await this.reviewModel.deleteMany({ user: id }).session(session);
+      await this.orderModel.deleteMany({ user: id }).session(session);
+      await this.notificationModel
+        .deleteMany({ $or: [{ recipient: id }, { sender: id }] })
+        .session(session);
+      await this.designModel.deleteMany({ user: id }).session(session);
+      await this.blogModel.deleteMany({ author: id }).session(session);
+      await this.chartModel
+        .deleteMany({ $or: [{ createdBy: id }, { updatedBy: id }] })
+        .session(session);
+
+      // 3. Remove user from coupon usedBy array
+      await this.couponModel
+        .updateMany({ usedBy: id }, { $pull: { usedBy: id } })
+        .session(session);
+
+      // 4. Delete the user record itself
+      const result = await this.userModel
+        .findByIdAndDelete(id)
+        .session(session);
+
+      await session.commitTransaction();
+      return result;
+    } catch (error) {
+      await session.abortTransaction();
+      console.error('Failed to delete user and related data:', error);
+      throw new InternalServerErrorException(
+        'Failed to delete user and related data',
+      );
+    } finally {
+      session.endSession();
+    }
   }
 
   async getAdminUsers(): Promise<UserDocument[]> {

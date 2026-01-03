@@ -29,6 +29,7 @@ import { NotificationService } from 'src/modules/notifications/notifications.ser
 import { ProductStatus } from 'src/common/enum/product.status.enum';
 import { CartService } from '../cart/services/cart.service';
 import { CouponsService } from '../coupons/coupons.service';
+import { Review } from '../review/schema/review.schema';
 
 @Injectable()
 export class OrderService {
@@ -41,6 +42,7 @@ export class OrderService {
     @InjectModel(User.name) private readonly userModel: Model<User>,
     @InjectModel(Product.name) private readonly productModel: Model<Product>,
     @InjectModel(Design.name) private readonly designModel: Model<Design>,
+    @InjectModel(Review.name) private readonly reviewModel: Model<Review>,
     private readonly notificationService: NotificationService,
     private readonly cartService: CartService,
     private readonly couponsService: CouponsService,
@@ -222,6 +224,27 @@ export class OrderService {
         operation === 'decrement'
           ? { $inc: { stock: -totalQuantity } }
           : { $inc: { stock: totalQuantity } };
+
+      await this.productModel.findByIdAndUpdate(item.product, update).exec();
+    }
+  }
+
+  private async updateSalesCount(
+    orderItems: any[],
+    operation: 'increment' | 'decrement',
+  ) {
+    for (const item of orderItems) {
+      let totalQuantity = 0;
+      for (const vq of item.variantQuantities) {
+        for (const sq of vq.sizeQuantities) {
+          totalQuantity += sq.quantity;
+        }
+      }
+
+      const update =
+        operation === 'increment'
+          ? { $inc: { salesCount: totalQuantity } }
+          : { $inc: { salesCount: -totalQuantity } };
 
       await this.productModel.findByIdAndUpdate(item.product, update).exec();
     }
@@ -468,6 +491,8 @@ export class OrderService {
     // Update order status based on payment status
     if (paymentStatus === PaymentStatus.SUCCEEDED) {
       order.status = OrderStatus.CONFIRMED;
+      // Update sales count
+      await this.updateSalesCount(order.items, 'increment');
     } else if (paymentStatus === PaymentStatus.FAILED) {
       order.status = OrderStatus.CANCELLED;
       // Restore product stock
@@ -489,6 +514,46 @@ export class OrderService {
 
   async getOrdersByUser(userId: string, page = 1, limit = 10) {
     return this.findAll(page, limit, undefined, undefined, userId);
+  }
+
+  async getCompleteOrdersByUser(userId: string, page = 1, limit = 10) {
+    const result = await this.findAll(
+      page,
+      limit,
+      undefined,
+      OrderStatus.DELIVERED,
+      userId,
+    );
+
+    // Get all reviews by this user to check which products are already reviewed
+    const userReviews = await this.reviewModel
+      .find({
+        $or: [{ user: userId }, { user: new Types.ObjectId(userId) }],
+      })
+      .select('product')
+      .lean()
+      .exec();
+
+    const reviewedProductIds = new Set(
+      userReviews.map((r) => String(r.product)),
+    );
+
+    // Add isReviewed flag to each item in each order
+    const ordersWithReviewStatus = result.data.map((order) => {
+      const itemsWithReviewStatus = order.items.map((item) => {
+        const productId = String((item.product as any)?._id || item.product);
+        return {
+          ...item,
+          isReviewed: productId ? reviewedProductIds.has(productId) : false,
+        };
+      });
+      return { ...order, items: itemsWithReviewStatus };
+    });
+
+    return {
+      ...result,
+      data: ordersWithReviewStatus,
+    };
   }
 
   async getOrderSummary(userId: string) {

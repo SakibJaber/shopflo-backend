@@ -138,6 +138,23 @@ export class ProductController {
     }
   }
 
+  @Get('sync-stats')
+  async syncStats() {
+    try {
+      const result = await this.productService.syncAllProductStats();
+      return {
+        success: true,
+        statusCode: HttpStatus.OK,
+        message: 'Product stats synchronized successfully',
+        data: result,
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        error.message || 'Failed to synchronize product stats',
+      );
+    }
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     try {

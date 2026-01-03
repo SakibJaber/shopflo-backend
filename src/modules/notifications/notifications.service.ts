@@ -86,8 +86,7 @@ export class NotificationService {
   }
 
   // ==================== GET NOTIFICATIONS ====================
-  async getNotifications(queryDto: NotificationQueryDto, page = 1, limit = 20) {
-    const skip = (page - 1) * limit;
+  async getNotifications(queryDto: NotificationQueryDto) {
     const filter: any = {};
 
     if (queryDto.recipient) {
@@ -111,31 +110,16 @@ export class NotificationService {
       if (queryDto.endDate) filter.createdAt.$lte = queryDto.endDate;
     }
 
-    const [notifications, total] = await Promise.all([
-      this.notificationModel
-        .find(filter)
-        .populate('recipient', 'name email')
-        .populate('sender', 'name email')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .exec(),
-      this.notificationModel.countDocuments(filter),
-    ]);
-
-    return {
-      notifications,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-      },
-    };
+    return await this.notificationModel
+      .find(filter)
+      .populate('recipient', 'name email')
+      .populate('sender', 'name email')
+      .sort({ createdAt: -1 })
+      .exec();
   }
 
   // ==================== GET USER NOTIFICATIONS ====================
-  async getUserNotifications(userId: string, page = 1, limit = 20) {
+  async getUserNotifications(userId: string) {
     const filter = {
       $or: [
         { recipient: new Types.ObjectId(userId) },
@@ -144,37 +128,21 @@ export class NotificationService {
       isActive: true,
     };
 
-    const [notifications, total, unreadCount] = await Promise.all([
-      this.notificationModel
-        .find(filter)
-        .populate('sender', 'name email')
-        .sort({ createdAt: -1 })
-        .skip((page - 1) * limit)
-        .limit(limit)
-        .exec(),
-      this.notificationModel.countDocuments(filter),
-      this.notificationModel.countDocuments({
-        ...filter,
-        status: NotificationStatus.UNREAD,
-      }),
-    ]);
-
-    return {
-      notifications,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-      },
-      unreadCount,
-    };
+    return await this.notificationModel
+      .find(filter)
+      .populate('sender', 'name email')
+      .sort({ createdAt: -1 })
+      .exec();
   }
 
   // ==================== GET NOTIFICATION BY ID ====================
   async getNotificationById(id: string): Promise<NotificationDocument> {
     const notification = await this.notificationModel
-      .findById(id)
+      .findByIdAndUpdate(
+        id,
+        { $set: { status: NotificationStatus.READ } },
+        { new: true },
+      )
       .populate('recipient', 'name email')
       .populate('sender', 'name email')
       .exec();
@@ -191,9 +159,16 @@ export class NotificationService {
     id: string,
     updateNotificationDto: UpdateNotificationDto,
   ): Promise<NotificationDocument> {
+    const updateData: any = { ...updateNotificationDto };
+
+    // Automatically mark as READ if no status is provided
+    if (!updateData.status) {
+      updateData.status = NotificationStatus.READ;
+    }
+
     const notification = await this.notificationModel.findByIdAndUpdate(
       id,
-      { $set: updateNotificationDto },
+      { $set: updateData },
       { new: true, runValidators: true },
     );
 
@@ -384,5 +359,50 @@ export class NotificationService {
     );
 
     return this.createBulkNotifications(notifications);
+  }
+
+  // ==================== SEED DUMMY NOTIFICATIONS ====================
+  async seedNotifications(userId?: string) {
+    const dummyNotifications: CreateNotificationDto[] = [
+      {
+        recipient: userId,
+        title: 'Welcome to Shopflo',
+        message: userId
+          ? 'Welcome to your personalized dashboard!'
+          : 'Thank you for joining our platform!',
+        type: NotificationType.CUSTOM,
+        priority: NotificationPriority.LOW,
+      },
+      {
+        recipient: userId,
+        title: 'New Promotion',
+        message: 'Get 20% off on your next purchase with code SHOP20.',
+        type: NotificationType.CUSTOM,
+        priority: NotificationPriority.MEDIUM,
+      },
+      {
+        recipient: userId,
+        title: 'System Update',
+        message: 'We have updated our terms of service. Please review them.',
+        type: NotificationType.SYSTEM_ALERT,
+        priority: NotificationPriority.LOW,
+      },
+      {
+        recipient: userId,
+        title: 'Flash Sale Alert',
+        message: "Flash sale starts in 1 hour! Don't miss out.",
+        type: NotificationType.CUSTOM,
+        priority: NotificationPriority.HIGH,
+      },
+      {
+        recipient: userId,
+        title: 'Order Delivered',
+        message: 'Your order #12345 has been successfully delivered.',
+        type: NotificationType.ORDER_UPDATED,
+        priority: NotificationPriority.MEDIUM,
+      },
+    ];
+
+    return this.createBulkNotifications(dummyNotifications);
   }
 }

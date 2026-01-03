@@ -18,12 +18,29 @@ import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
 import { ProductVariantDto } from 'src/modules/products/dto/product-variant.dto';
 import { UpdateVariantDto } from 'src/modules/products/dto/update-product-variant.dto';
 import { Size } from 'src/modules/sizes/schema/size.schema';
+import { Order } from '../order/schema/order.schema';
+import { Review } from '../review/schema/review.schema';
+import { Cart } from '../cart/schema/cart.schema';
+import { Favorite } from '../favorite/schema/favorite,schema';
+import { Design } from '../designs/schema/design.schema';
+
+import { OrderStatus } from 'src/common/enum/order_status.enum';
 
 @Injectable()
 export class ProductService {
   constructor(
     @InjectModel(Product.name)
     private readonly productModel: Model<ProductDocument>,
+    @InjectModel(Order.name)
+    private readonly orderModel: Model<Order>,
+    @InjectModel(Review.name)
+    private readonly reviewModel: Model<Review>,
+    @InjectModel(Cart.name)
+    private readonly cartModel: Model<Cart>,
+    @InjectModel(Favorite.name)
+    private readonly favoriteModel: Model<Favorite>,
+    @InjectModel(Design.name)
+    private readonly designModel: Model<Design>,
     private readonly fileUploadService: FileUploadService,
   ) {}
 
@@ -455,13 +472,55 @@ export class ProductService {
       throw new NotFoundException('Product not found');
     }
 
+    // Check if the product is in any order
+    const orderExists = await this.orderModel.exists({
+      'items.product': new Types.ObjectId(id),
+    });
+
+    if (orderExists) {
+      throw new BadRequestException(
+        'Product cannot be deleted because it is part of an order',
+      );
+    }
+
+    // Perform cascading deletion
+    await Promise.all([
+      // Delete reviews
+      this.reviewModel.deleteMany({ product: new Types.ObjectId(id) }).exec(),
+      // Remove from carts
+      this.cartModel
+        .updateMany(
+          {},
+          { $pull: { items: { product: new Types.ObjectId(id) } } },
+        )
+        .exec(),
+      // Delete from favorites
+      this.favoriteModel.deleteMany({ product: new Types.ObjectId(id) }).exec(),
+      // Delete designs based on this product
+      this.designModel
+        .deleteMany({ baseProduct: new Types.ObjectId(id) })
+        .exec(),
+    ]);
+
+    // Delete variant images
     for (const variant of product.variants) {
-      if (variant.frontImage) {
-        await this.fileUploadService.deleteFile(variant.frontImage);
+      const imagesToDelete = [
+        variant.frontImage,
+        variant.backImage,
+        variant.leftImage,
+        variant.rightImage,
+      ].filter(Boolean);
+
+      for (const imageUrl of imagesToDelete) {
+        if (imageUrl) {
+          await this.fileUploadService.deleteFile(imageUrl);
+        }
       }
-      if (variant.backImage) {
-        await this.fileUploadService.deleteFile(variant.backImage);
-      }
+    }
+
+    // Delete thumbnail
+    if (product.thumbnail) {
+      await this.fileUploadService.deleteFile(product.thumbnail);
     }
 
     await this.productModel.findByIdAndDelete(id).exec();
@@ -573,6 +632,35 @@ export class ProductService {
     if (!variant) {
       throw new NotFoundException('Variant not found');
     }
+
+    // Check if this specific variant is in any order
+    const orderExists = await this.orderModel.exists({
+      'items.product': new Types.ObjectId(productId),
+      'items.variantQuantities.variant': new Types.ObjectId(variantId),
+    });
+
+    if (orderExists) {
+      throw new BadRequestException(
+        'Variant cannot be deleted because it is part of an order',
+      );
+    }
+
+    // Remove this variant from all carts
+    await this.cartModel
+      .updateMany(
+        { 'items.product': new Types.ObjectId(productId) },
+        {
+          $pull: {
+            'items.$[item].variantQuantities': {
+              variant: new Types.ObjectId(variantId),
+            },
+          },
+        },
+        {
+          arrayFilters: [{ 'item.product': new Types.ObjectId(productId) }],
+        },
+      )
+      .exec();
 
     // Delete all associated files including new ones
     const filesToDelete = [
@@ -899,5 +987,74 @@ export class ProductService {
         error.message || 'Failed to fetch related products',
       );
     }
+  }
+
+  async syncAllProductStats() {
+    const products = await this.productModel.find().exec();
+    const results: any[] = [];
+
+    for (const product of products) {
+      const productId = product._id;
+
+      // 1. Calculate salesCount from delivered orders
+      const orders = await this.orderModel
+        .find({
+          'items.product': productId,
+          status: OrderStatus.DELIVERED,
+        })
+        .lean()
+        .exec();
+
+      let salesCount = 0;
+      for (const order of orders) {
+        for (const item of order.items) {
+          if (String(item.product) === String(productId)) {
+            for (const vq of item.variantQuantities) {
+              for (const sq of vq.sizeQuantities) {
+                salesCount += sq.quantity;
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Calculate reviewCount and rating from reviews
+      const [reviewStats] = await this.reviewModel.aggregate([
+        {
+          $match: {
+            $or: [{ product: productId }, { product: String(productId) }],
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            avgRating: { $avg: '$rating' },
+            count: { $sum: 1 },
+          },
+        },
+      ]);
+
+      const rating = reviewStats?.avgRating
+        ? Number(reviewStats.avgRating.toFixed(2))
+        : 0;
+      const reviewCount = reviewStats?.count || 0;
+
+      // 3. Update product
+      await this.productModel.findByIdAndUpdate(productId, {
+        salesCount,
+        rating,
+        reviewCount,
+      });
+
+      results.push({
+        productId,
+        productName: product.productName,
+        salesCount,
+        rating,
+        reviewCount,
+      });
+    }
+
+    return results;
   }
 }

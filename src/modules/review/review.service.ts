@@ -67,8 +67,15 @@ export class ReviewService {
 
   /** Recompute product rating (avg, 2 decimals) and reviewCount. */
   private async recomputeProductStats(productId: string): Promise<void> {
+    const matchCondition = {
+      $or: [
+        { product: new Types.ObjectId(productId) },
+        { product: productId }, // support string-based references
+      ],
+    };
+
     const [stats] = await this.reviewModel.aggregate([
-      { $match: { product: new Types.ObjectId(productId) } },
+      { $match: matchCondition },
       {
         $group: {
           _id: null,
@@ -84,7 +91,7 @@ export class ReviewService {
     await this.productModel.findByIdAndUpdate(
       productId,
       { rating: Number(avg.toFixed(2)), reviewCount: count },
-      { new: false },
+      { new: true },
     );
   }
 

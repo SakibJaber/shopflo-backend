@@ -25,6 +25,7 @@ import { CheckoutController } from 'src/modules/order/payment/checkout.controlle
 import { StripeWebhookController } from 'src/modules/order/payment/stripe-webhook.controller';
 import { StripeService } from 'src/modules/order/payment/stripe.service';
 import { CouponsModule } from 'src/modules/coupons/coupons.module';
+import { Review, ReviewSchema } from 'src/modules/review/schema/review.schema';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { CouponsModule } from 'src/modules/coupons/coupons.module';
       { name: User.name, schema: UserSchema },
       { name: Product.name, schema: ProductSchema },
       { name: Design.name, schema: DesignSchema },
+      { name: Review.name, schema: ReviewSchema },
     ]),
     CartModule,
     NotificationsModule,

@@ -176,6 +176,29 @@ export class UsersController {
     }
   }
 
+  @Delete('profile')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.USER)
+  async deleteProfile(@Req() req: any) {
+    try {
+      await this.usersService.deleteUser(req.user.userId);
+      return {
+        success: true,
+        statusCode: 200,
+        message:
+          'Your profile and all related data have been deleted successfully',
+        data: null,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: error.message || 'Failed to delete profile',
+        data: null,
+      };
+    }
+  }
+
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
