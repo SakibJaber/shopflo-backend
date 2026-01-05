@@ -9,6 +9,7 @@ import { Brand, BrandDocument } from './schema/brand.schema';
 import { CreateBrandDto } from './dto/create-brand.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
 
 @Injectable()
 export class BrandService {
@@ -23,7 +24,11 @@ export class BrandService {
     file: Express.Multer.File,
   ): Promise<Brand> {
     try {
-      const brandLogo = await this.fileUploadService.handleUpload(file);
+      const brandLogo = await this.fileUploadService.handleUpload(
+        file,
+        UPLOAD_FOLDERS.BRANDS,
+      );
+
       const createdBrand = new this.brandModel({
         ...createBrandDto,
         brandLogo,
@@ -83,7 +88,10 @@ export class BrandService {
       if (existing.brandLogo) {
         await this.fileUploadService.deleteFile(existing.brandLogo);
       }
-      existing.brandLogo = await this.fileUploadService.handleUpload(file);
+      existing.brandLogo = await this.fileUploadService.handleUpload(
+        file,
+        UPLOAD_FOLDERS.BRANDS,
+      );
     }
 
     if (updateBrandDto.brandName) {

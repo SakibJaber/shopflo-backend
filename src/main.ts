@@ -7,7 +7,7 @@ import { AllExceptionsFilter } from 'src/common/filters/all-exceptions.filter';
 import { ResponseInterceptor } from 'src/common/interceptors/response.interceptor';
 
 async function bootstrap() {
-  // Disable built-in body parser to control it manually
+  // Disable built-in body parser to control it manually 
   const app = await NestFactory.create(AppModule, {
     bodyParser: false,
   });
@@ -42,3 +42,4 @@ async function bootstrap() {
 }
 
 bootstrap();
+

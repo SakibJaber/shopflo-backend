@@ -6,6 +6,7 @@ import {
   IsString,
   Min,
   Max,
+  IsOptional,
 } from 'class-validator';
 
 export class CreateProductDto {
@@ -40,6 +41,7 @@ export class CreateProductDto {
   @IsNumber()
   @Min(0)
   @Max(100)
+  @IsOptional()
   discountPercentage: number;
 
   @IsString()

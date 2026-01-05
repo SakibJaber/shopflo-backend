@@ -9,6 +9,7 @@ import { CreateTestimonialDto } from './dto/create-testimonial.dto';
 import { UpdateTestimonialDto } from './dto/update-testimonial.dto';
 import { Testimonial } from './schema/testimonial.schema';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
 
 @Injectable()
 export class TestimonialService {
@@ -26,7 +27,10 @@ export class TestimonialService {
       let imageUrl: string | undefined;
 
       if (file) {
-        imageUrl = await this.fileUploadService.handleUpload(file);
+        imageUrl = await this.fileUploadService.handleUpload(
+          file,
+          UPLOAD_FOLDERS.TESTIMONIALS,
+        );
       }
 
       const createdTestimonial = new this.testimonialModel({
@@ -98,7 +102,10 @@ export class TestimonialService {
         }
 
         // Upload new image
-        const imageUrl = await this.fileUploadService.handleUpload(file);
+        const imageUrl = await this.fileUploadService.handleUpload(
+          file,
+          UPLOAD_FOLDERS.TESTIMONIALS,
+        );
         existingTestimonial.imageUrl = imageUrl;
       }
 

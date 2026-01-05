@@ -10,6 +10,7 @@ import { Icon, IconDocument } from './schema/icon.schema';
 import { CreateIconDto } from './dto/create-icon.dto';
 import { UpdateIconDto } from './dto/update-icon.dto';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
 
 @Injectable()
 export class IconsService {
@@ -49,7 +50,11 @@ export class IconsService {
 
       if (files && files.length > 0) {
         for (const file of files) {
-          const url = await this.fileUploadService.handleUpload(file);
+          const url = await this.fileUploadService.handleUpload(
+            file,
+            UPLOAD_FOLDERS.ICONS,
+          );
+
           iconUrls.push(url);
         }
       }
@@ -157,7 +162,11 @@ export class IconsService {
     // Upload and add new files
     if (files && files.length > 0) {
       for (const file of files) {
-        const url = await this.fileUploadService.handleUpload(file);
+        const url = await this.fileUploadService.handleUpload(
+          file,
+          UPLOAD_FOLDERS.ICONS,
+        );
+
         iconUrls.push(url);
       }
     }

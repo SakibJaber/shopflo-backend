@@ -6,6 +6,7 @@ import {
   InternalServerErrorException,
   HttpStatus,
 } from '@nestjs/common';
+import { randomInt } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -13,6 +14,7 @@ import { UsersService } from 'src/modules/users/users.service';
 import { MailService } from 'src/modules/mail/mail.service';
 import { NotificationService } from 'src/modules/notifications/notifications.service';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
 import { JwtPayload } from 'src/common/interface/jwtPayload.interface';
 import { UserStatus } from 'src/common/enum/user.status.enum';
 import { Role } from 'src/common/enum/user_role.enum';
@@ -78,7 +80,7 @@ export class AuthService {
 
   // Helper method to generate a 6-digit OTP code
   private generateCode(): string {
-    return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit code
+    return randomInt(100000, 1000000).toString(); // 6-digit code
   }
 
   // Signup & Email Verification
@@ -92,7 +94,10 @@ export class AuthService {
 
     let imageUrl: string | undefined;
     if (file) {
-      imageUrl = await this.fileUploadService.handleUpload(file);
+      imageUrl = await this.fileUploadService.handleUpload(
+        file,
+        UPLOAD_FOLDERS.USERS,
+      );
     }
 
     // Create the user as UNBLOCKED but not verified (email verification required)

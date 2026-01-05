@@ -19,6 +19,7 @@ import { NotificationType } from 'src/common/enum/notification_type.enum';
 import { NotificationPriority } from '../notifications/schema/notification.schema';
 import { UsersService } from 'src/modules/users/users.service';
 import { Role } from 'src/common/enum/user_role.enum';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
 
 import {
   Product,
@@ -147,7 +148,12 @@ export class ReviewService {
       const imageUrls: string[] = [];
       if (files?.length) {
         for (const file of files) {
-          imageUrls.push(await this.fileUploadService.handleUpload(file));
+          imageUrls.push(
+            await this.fileUploadService.handleUpload(
+              file,
+              UPLOAD_FOLDERS.REVIEWS,
+            ),
+          );
         }
       }
 
@@ -329,7 +335,12 @@ export class ReviewService {
       const imageUrls: string[] = review.images || [];
       if (files?.length) {
         for (const file of files) {
-          imageUrls.push(await this.fileUploadService.handleUpload(file));
+          imageUrls.push(
+            await this.fileUploadService.handleUpload(
+              file,
+              UPLOAD_FOLDERS.REVIEWS,
+            ),
+          );
         }
       }
 

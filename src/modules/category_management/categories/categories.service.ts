@@ -13,6 +13,7 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
 import { slugify } from 'src/common/utils/slugify.util';
 import { Subcategory } from '../subcategory/schema/subcategory.schema';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
 
 @Injectable()
 export class CategoriesService {
@@ -51,7 +52,10 @@ export class CategoriesService {
 
       let imageUrl: string | undefined;
       if (file) {
-        imageUrl = await this.fileUploadService.handleUpload(file);
+        imageUrl = await this.fileUploadService.handleUpload(
+          file,
+          UPLOAD_FOLDERS.CATEGORIES,
+        );
       }
 
       const created = await this.categoryModel.create({
@@ -159,7 +163,10 @@ export class CategoriesService {
     // image handling (replace + cleanup)
     let imageUrl = existing.imageUrl;
     if (file) {
-      const newUrl = await this.fileUploadService.handleUpload(file);
+      const newUrl = await this.fileUploadService.handleUpload(
+        file,
+        UPLOAD_FOLDERS.CATEGORIES,
+      );
       if (imageUrl && imageUrl !== newUrl) {
         try {
           await this.fileUploadService.deleteFile(imageUrl);
@@ -189,16 +196,18 @@ export class CategoriesService {
   async remove(id: string): Promise<void> {
     const session = await this.categoryModel.db.startSession();
     session.startTransaction();
-  
+
     try {
-      const deleted = await this.categoryModel.findByIdAndDelete(id).session(session);
+      const deleted = await this.categoryModel
+        .findByIdAndDelete(id)
+        .session(session);
       if (!deleted) {
         throw new NotFoundException({
           statusCode: HttpStatus.NOT_FOUND,
           message: `Category with ID ${id} not found`,
         });
       }
-  
+
       // Delete associated image
       if (deleted.imageUrl) {
         try {
@@ -207,10 +216,10 @@ export class CategoriesService {
           /* noop */
         }
       }
-  
+
       // Remove all subcategories associated with this category
       await this.subcategoryModel.deleteMany({ category: id }).session(session);
-  
+
       await session.commitTransaction();
     } catch (error) {
       await session.abortTransaction();

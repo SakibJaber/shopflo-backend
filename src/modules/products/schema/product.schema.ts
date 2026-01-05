@@ -62,13 +62,13 @@ export class Product {
   @Prop({ required: true, min: 0 })
   price: number;
 
-  @Prop({ required: true, min: 0, max: 100 })
+  @Prop({ required: false, min: 0, max: 100, default: 0 })
   discountPercentage: number;
 
   @Prop({ required: true, min: 0 })
   discountedPrice: number;
 
-  @Prop({ required: true }) // New required field
+  @Prop({ required: true })
   thumbnail: string;
 
   @Prop({ type: [ProductVariantSchema], default: [] })
@@ -96,3 +96,4 @@ ProductSchema.pre('save', function (next) {
   }
   next();
 });
+

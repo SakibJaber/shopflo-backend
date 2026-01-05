@@ -3,7 +3,6 @@ import {
   FileInterceptor,
   FilesInterceptor,
 } from '@nestjs/platform-express';
-import { ConfigService } from '@nestjs/config';
 import * as multer from 'multer';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -24,32 +23,8 @@ export function GlobalFileUploadInterceptor(
   const isMultiple = maxCount > 1;
   const isAny = options.any === true;
 
-  const config = new ConfigService();
-  const storageType = config.get<string>('FILE_STORAGE', 'local');
-  const localUploadPath = path.resolve(
-    process.cwd(),
-    config.get<string>('LOCAL_UPLOAD_PATH', 'public/uploads'),
-  );
-
-  let storage: multer.StorageEngine;
-
-  if (storageType === 's3') {
-    // Use memory storage; service will push to S3
-    storage = multer.memoryStorage();
-  } else {
-    if (!fs.existsSync(localUploadPath)) {
-      fs.mkdirSync(localUploadPath, { recursive: true });
-    }
-    storage = multer.diskStorage({
-      destination: (req, file, cb) => cb(null, localUploadPath),
-      filename: (req, file, cb) => {
-        // keep original base name sanitized (service will otherwise generate)
-        const safeName = file.originalname.replace(/\s+/g, '-');
-        const name = `${Date.now()}-${safeName}`;
-        cb(null, name);
-      },
-    });
-  }
+  // Always use memoryStorage - the service will handle local vs S3
+  const storage = multer.memoryStorage();
 
   const allowed = options.allowedMimes ?? /\/(jpg|jpeg|png|gif|webp|pdf)$/i;
   const fileFilter: multer.Options['fileFilter'] = (req, file, cb) => {
@@ -57,8 +32,12 @@ export function GlobalFileUploadInterceptor(
     return cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname));
   };
 
+  const defaultMaxFileSize = process.env.MAX_FILE_SIZE
+    ? parseInt(process.env.MAX_FILE_SIZE)
+    : 10 * 1024 * 1024; // 10MB default
+
   const limits: multer.Options['limits'] = {
-    fileSize: options.maxFileSizeBytes ?? 5 * 1024 * 1024, // 5MB default
+    fileSize: options.maxFileSizeBytes ?? defaultMaxFileSize,
     files: isAny ? undefined : maxCount,
   };
 
@@ -71,7 +50,6 @@ export function GlobalFileUploadInterceptor(
       fileFilter,
     });
   }
-
 
   if (isMultiple)
     return FilesInterceptor(fieldNames, maxCount, {

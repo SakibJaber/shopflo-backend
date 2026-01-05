@@ -59,44 +59,6 @@ export class ResponseInterceptor<T>
           ...(meta && { meta }),
         };
       }),
-      catchError((error) => {
-        const response = context.switchToHttp().getResponse();
-
-        // Handle HttpExceptions (thrown by NestJS)
-        if (error instanceof HttpException) {
-          const statusCode = error.getStatus();
-          const errorResponse = error.getResponse();
-
-          response.status(statusCode);
-
-          return throwError(() => ({
-            success: false,
-            statusCode,
-            message:
-              typeof errorResponse === 'string'
-                ? errorResponse
-                : (errorResponse as any).message || error.message,
-            error: error.name,
-            ...(typeof errorResponse === 'object' && {
-              details: errorResponse,
-            }),
-          }));
-        }
-
-        // Handle other types of errors
-        const statusCode = error.status || response.statusCode || 500;
-        response.status(statusCode);
-
-        return throwError(() => ({
-          success: false,
-          statusCode,
-          message: error.message || 'Internal server error',
-          error: error.name || 'Error',
-          ...(process.env.NODE_ENV === 'development' && {
-            details: error.stack,
-          }),
-        }));
-      }),
     );
   }
 }

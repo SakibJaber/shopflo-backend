@@ -10,6 +10,7 @@ import { CreateDesignDto } from './dto/create-design.dto';
 import { UpdateDesignDto } from './dto/update-design.dto';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
 import { Product, ProductDocument } from '../products/schema/product.schema';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
 
 @Injectable()
 export class DesignsService {
@@ -54,6 +55,7 @@ export class DesignsService {
       // Process front design files
       const frontImageUrl = await this.fileUploadService.handleUpload(
         files.frontImage[0],
+        UPLOAD_FOLDERS.DESIGNS,
       );
       uploadedUrls.push(frontImageUrl);
 
@@ -61,6 +63,7 @@ export class DesignsService {
       if (files.frontElement?.[0]) {
         frontElementUrl = await this.fileUploadService.handleUpload(
           files.frontElement[0],
+          UPLOAD_FOLDERS.DESIGNS,
         );
         uploadedUrls.push(frontElementUrl);
       }
@@ -72,12 +75,14 @@ export class DesignsService {
       if (files.backImage?.[0]) {
         backImageUrl = await this.fileUploadService.handleUpload(
           files.backImage[0],
+          UPLOAD_FOLDERS.DESIGNS,
         );
         uploadedUrls.push(backImageUrl);
 
         if (files.backElement?.[0]) {
           backElementUrl = await this.fileUploadService.handleUpload(
             files.backElement[0],
+            UPLOAD_FOLDERS.DESIGNS,
           );
           uploadedUrls.push(backElementUrl);
         }
@@ -90,12 +95,14 @@ export class DesignsService {
       if (files.leftImage?.[0]) {
         leftImageUrl = await this.fileUploadService.handleUpload(
           files.leftImage[0],
+          UPLOAD_FOLDERS.DESIGNS,
         );
         uploadedUrls.push(leftImageUrl);
 
         if (files.leftElement?.[0]) {
           leftElementUrl = await this.fileUploadService.handleUpload(
             files.leftElement[0],
+            UPLOAD_FOLDERS.DESIGNS,
           );
           uploadedUrls.push(leftElementUrl);
         }
@@ -108,12 +115,14 @@ export class DesignsService {
       if (files.rightImage?.[0]) {
         rightImageUrl = await this.fileUploadService.handleUpload(
           files.rightImage[0],
+          UPLOAD_FOLDERS.DESIGNS,
         );
         uploadedUrls.push(rightImageUrl);
 
         if (files.rightElement?.[0]) {
           rightElementUrl = await this.fileUploadService.handleUpload(
             files.rightElement[0],
+            UPLOAD_FOLDERS.DESIGNS,
           );
           uploadedUrls.push(rightElementUrl);
         }
@@ -299,7 +308,6 @@ export class DesignsService {
     return design;
   }
 
-
   async update(
     id: string,
     userId: string,
@@ -341,6 +349,7 @@ export class DesignsService {
           }
           const newFrontImage = await this.fileUploadService.handleUpload(
             files.frontImage[0],
+            UPLOAD_FOLDERS.DESIGNS,
           );
           newlyUploadedUrls.push(newFrontImage);
           design.frontImage = newFrontImage;
@@ -352,6 +361,7 @@ export class DesignsService {
           }
           const newBackImage = await this.fileUploadService.handleUpload(
             files.backImage[0],
+            UPLOAD_FOLDERS.DESIGNS,
           );
           newlyUploadedUrls.push(newBackImage);
           design.backImage = newBackImage;
@@ -363,6 +373,7 @@ export class DesignsService {
           }
           const newFrontElement = await this.fileUploadService.handleUpload(
             files.frontElement[0],
+            UPLOAD_FOLDERS.DESIGNS,
           );
           newlyUploadedUrls.push(newFrontElement);
           design.frontElement = newFrontElement;
@@ -374,6 +385,7 @@ export class DesignsService {
           }
           const newBackElement = await this.fileUploadService.handleUpload(
             files.backElement[0],
+            UPLOAD_FOLDERS.DESIGNS,
           );
           newlyUploadedUrls.push(newBackElement);
           design.backElement = newBackElement;
@@ -386,6 +398,7 @@ export class DesignsService {
           }
           const newLeftImage = await this.fileUploadService.handleUpload(
             files.leftImage[0],
+            UPLOAD_FOLDERS.DESIGNS,
           );
           newlyUploadedUrls.push(newLeftImage);
           design.leftImage = newLeftImage;
@@ -397,6 +410,7 @@ export class DesignsService {
           }
           const newLeftElement = await this.fileUploadService.handleUpload(
             files.leftElement[0],
+            UPLOAD_FOLDERS.DESIGNS,
           );
           newlyUploadedUrls.push(newLeftElement);
           design.leftElement = newLeftElement;
@@ -409,6 +423,7 @@ export class DesignsService {
           }
           const newRightImage = await this.fileUploadService.handleUpload(
             files.rightImage[0],
+            UPLOAD_FOLDERS.DESIGNS,
           );
           newlyUploadedUrls.push(newRightImage);
           design.rightImage = newRightImage;
@@ -420,6 +435,7 @@ export class DesignsService {
           }
           const newRightElement = await this.fileUploadService.handleUpload(
             files.rightElement[0],
+            UPLOAD_FOLDERS.DESIGNS,
           );
           newlyUploadedUrls.push(newRightElement);
           design.rightElement = newRightElement;

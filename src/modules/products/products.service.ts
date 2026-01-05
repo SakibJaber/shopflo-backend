@@ -2,7 +2,6 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  HttpStatus,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -18,13 +17,14 @@ import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
 import { ProductVariantDto } from 'src/modules/products/dto/product-variant.dto';
 import { UpdateVariantDto } from 'src/modules/products/dto/update-product-variant.dto';
 import { Size } from 'src/modules/sizes/schema/size.schema';
-import { Order } from '../order/schema/order.schema';
-import { Review } from '../review/schema/review.schema';
-import { Cart } from '../cart/schema/cart.schema';
-import { Favorite } from '../favorite/schema/favorite,schema';
-import { Design } from '../designs/schema/design.schema';
-
 import { OrderStatus } from 'src/common/enum/order_status.enum';
+import { ProductFilterBuilder } from './utils/product-filter.util';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
+import { Cart } from 'src/modules/cart/schema/cart.schema';
+import { Design } from 'src/modules/designs/schema/design.schema';
+import { Favorite } from 'src/modules/favorite/schema/favorite,schema';
+import { Order } from 'src/modules/order/schema/order.schema';
+import { Review } from 'src/modules/review/schema/review.schema';
 
 @Injectable()
 export class ProductService {
@@ -49,14 +49,18 @@ export class ProductService {
     file?: Express.Multer.File,
   ): Promise<Product> {
     try {
+      const discountPercentage = createProductDto.discountPercentage || 0;
       const discountedPrice =
         createProductDto.price -
-        createProductDto.price * (createProductDto.discountPercentage / 100);
+        createProductDto.price * (discountPercentage / 100);
 
       let thumbnail: string | undefined;
 
       if (file) {
-        thumbnail = await this.fileUploadService.handleUpload(file);
+        thumbnail = await this.fileUploadService.handleUpload(
+          file,
+          UPLOAD_FOLDERS.PRODUCTS,
+        );
       } else {
         throw new BadRequestException('Product thumbnail image is required');
       }
@@ -75,7 +79,10 @@ export class ProductService {
       // If file was uploaded but product creation failed, delete the file
       if (file) {
         try {
-          const uploadedUrl = await this.fileUploadService.handleUpload(file);
+          const uploadedUrl = await this.fileUploadService.handleUpload(
+            file,
+            UPLOAD_FOLDERS.PRODUCTS,
+          );
           await this.fileUploadService.deleteFile(uploadedUrl);
         } catch (deleteError) {
           console.error('Failed to cleanup file:', deleteError);
@@ -133,34 +140,55 @@ export class ProductService {
   ): Promise<ProductVariantDto[]> {
     const processedVariants = [...variants];
 
+    // Create an array of promises for all uploads
+    const uploadPromises: Promise<void>[] = [];
+
     for (let i = 0; i < processedVariants.length; i++) {
       const variant = processedVariants[i];
 
       if (files.frontImage && files.frontImage[i]) {
-        variant.frontImage = await this.fileUploadService.handleUpload(
-          files.frontImage[i],
+        uploadPromises.push(
+          this.fileUploadService
+            .handleUpload(files.frontImage[i], UPLOAD_FOLDERS.PRODUCTS)
+            .then((url) => {
+              variant.frontImage = url;
+            }),
         );
       }
 
       if (files.backImage && files.backImage[i]) {
-        variant.backImage = await this.fileUploadService.handleUpload(
-          files.backImage[i],
-        );
-      }
-      // Process new leftImage field
-      if (files.leftImage && files.leftImage[i]) {
-        variant.leftImage = await this.fileUploadService.handleUpload(
-          files.leftImage[i],
+        uploadPromises.push(
+          this.fileUploadService
+            .handleUpload(files.backImage[i], UPLOAD_FOLDERS.PRODUCTS)
+            .then((url) => {
+              variant.backImage = url;
+            }),
         );
       }
 
-      // Process new rightImage field
+      if (files.leftImage && files.leftImage[i]) {
+        uploadPromises.push(
+          this.fileUploadService
+            .handleUpload(files.leftImage[i], UPLOAD_FOLDERS.PRODUCTS)
+            .then((url) => {
+              variant.leftImage = url;
+            }),
+        );
+      }
+
       if (files.rightImage && files.rightImage[i]) {
-        variant.rightImage = await this.fileUploadService.handleUpload(
-          files.rightImage[i],
+        uploadPromises.push(
+          this.fileUploadService
+            .handleUpload(files.rightImage[i], UPLOAD_FOLDERS.PRODUCTS)
+            .then((url) => {
+              variant.rightImage = url;
+            }),
         );
       }
     }
+
+    // Wait for all uploads to complete
+    await Promise.all(uploadPromises);
 
     return processedVariants;
   }
@@ -183,203 +211,62 @@ export class ProductService {
     } = query;
 
     const skip = (page - 1) * limit;
-    const filter: any = {};
+    const filterBuilder = new ProductFilterBuilder();
 
-    try {
-      // Build filter conditions separately
-      const conditions: any[] = [];
+    const filter = filterBuilder
+      .addSearch(search)
+      .addCategory(category)
+      .addSubcategory(subcategory)
+      .addBrand(brand)
+      .addColor(color)
+      .addSize(size)
+      .addPriceRange(price, minPrice, maxPrice)
+      .build();
 
-      // Search condition
-      if (search) {
-        conditions.push({
-          $or: [
-            { productName: { $regex: search, $options: 'i' } },
-            { description: { $regex: search, $options: 'i' } },
-            { shortDescription: { $regex: search, $options: 'i' } },
-          ],
-        });
-      }
-
-      // Category condition
-      if (category) {
-        if (!Types.ObjectId.isValid(category)) {
-          throw new BadRequestException('Invalid category ID');
-        }
-        conditions.push({
-          $or: [
-            { category: category },
-            { category: new Types.ObjectId(category) },
-          ],
-        });
-      }
-
-      // Subcategory condition
-      if (subcategory) {
-        if (!Types.ObjectId.isValid(subcategory)) {
-          throw new BadRequestException('Invalid subcategory ID');
-        }
-        conditions.push({
-          $or: [
-            { subcategory: subcategory },
-            { subcategory: new Types.ObjectId(subcategory) },
-          ],
-        });
-      }
-
-      // Brand condition
-      if (brand) {
-        if (Array.isArray(brand)) {
-          const brandConditions = brand.map((b) => ({
-            $or: [{ brand: b }, { brand: new Types.ObjectId(b) }],
-          }));
-          conditions.push({ $or: brandConditions });
-        } else {
-          if (!Types.ObjectId.isValid(brand)) {
-            throw new BadRequestException('Invalid brand ID');
-          }
-          conditions.push({
-            $or: [{ brand: brand }, { brand: new Types.ObjectId(brand) }],
-          });
-        }
-      }
-
-      // Color filter (search in variants)
-      if (color) {
-        if (Array.isArray(color)) {
-          const colorObjectIds = color.map((c) => {
-            if (!Types.ObjectId.isValid(c)) {
-              throw new BadRequestException('Invalid color ID');
-            }
-            return new Types.ObjectId(c);
-          });
-          conditions.push({ 'variants.color': { $in: colorObjectIds } });
-        } else {
-          if (!Types.ObjectId.isValid(color)) {
-            throw new BadRequestException('Invalid color ID');
-          }
-          conditions.push({ 'variants.color': new Types.ObjectId(color) });
-        }
-      }
-
-      // Size filter (search in variants)
-      if (size) {
-        if (Array.isArray(size)) {
-          const sizeObjectIds = size.map((s) => {
-            if (!Types.ObjectId.isValid(s)) {
-              throw new BadRequestException('Invalid size ID');
-            }
-            return new Types.ObjectId(s);
-          });
-          conditions.push({ 'variants.size': { $in: sizeObjectIds } });
-        } else {
-          if (!Types.ObjectId.isValid(size)) {
-            throw new BadRequestException('Invalid size ID');
-          }
-          conditions.push({ 'variants.size': new Types.ObjectId(size) });
-        }
-      }
-
-      // Price filter
-      const priceFilter: any = {};
-
-      if (price) {
-        const priceRange = price
-          .split('-')
-          .map((p: string) => parseInt(p.trim()));
-        if (
-          priceRange.length === 2 &&
-          !isNaN(priceRange[0]) &&
-          !isNaN(priceRange[1])
-        ) {
-          if (priceRange[0] > priceRange[1]) {
-            throw new BadRequestException(
-              'Minimum price cannot be greater than maximum price',
-            );
-          }
-          priceFilter.$gte = priceRange[0];
-          priceFilter.$lte = priceRange[1];
-        }
-      }
-
-      if (minPrice) {
-        const min = parseInt(minPrice);
-        if (isNaN(min) || min < 0) {
-          throw new BadRequestException(
-            'Invalid minPrice. Must be a positive number.',
-          );
-        }
-        priceFilter.$gte = min;
-      }
-
-      if (maxPrice) {
-        const max = parseInt(maxPrice);
-        if (isNaN(max) || max < 0) {
-          throw new BadRequestException(
-            'Invalid maxPrice. Must be a positive number.',
-          );
-        }
-        priceFilter.$lte = max;
-      }
-
-      if (Object.keys(priceFilter).length > 0) {
-        conditions.push({ discountedPrice: priceFilter });
-      }
-
-      // Combine all conditions with $and
-      if (conditions.length > 0) {
-        filter.$and = conditions;
-      }
-
-      // Handle sorting
-      const sortOptions: any = {};
-      if (sortBy) {
-        const sortOrder = order === 'asc' ? 1 : -1;
-        const sortFieldMap: { [key: string]: string } = {
-          title: 'productName',
-          name: 'productName',
-          price: 'discountedPrice',
-          createdAt: 'createdAt',
-          updatedAt: 'updatedAt',
-        };
-        const actualSortField = sortFieldMap[sortBy] || sortBy;
-        sortOptions[actualSortField] = sortOrder;
-      } else {
-        sortOptions.createdAt = -1;
-      }
-
-      const [data, total] = await Promise.all([
-        this.productModel
-          .find(filter)
-          .populate('category', 'name')
-          .populate('subcategory', 'name')
-          .populate('brand', 'brandName brandLogo')
-          .populate('variants.color', 'name hexValue')
-          .populate('variants.size', 'name')
-          .sort(sortOptions)
-          .skip(skip)
-          .limit(limit)
-          .exec(),
-        this.productModel.countDocuments(filter),
-      ]);
-
-      return {
-        success: true,
-        statusCode: 200,
-        message: 'Products fetched successfully',
-        data,
-        meta: {
-          total,
-          page: Number(page),
-          limit: Number(limit),
-          totalPages: Math.ceil(total / limit),
-        },
+    // Handle sorting
+    const sortOptions: any = {};
+    if (sortBy) {
+      const sortOrder = order === 'asc' ? 1 : -1;
+      const sortFieldMap: { [key: string]: string } = {
+        title: 'productName',
+        name: 'productName',
+        price: 'discountedPrice',
+        createdAt: 'createdAt',
+        updatedAt: 'updatedAt',
       };
-    } catch (error) {
-      console.error('Filter error:', error);
-      throw new BadRequestException(
-        error.message || 'Failed to fetch products',
-      );
+      const actualSortField = sortFieldMap[sortBy] || sortBy;
+      sortOptions[actualSortField] = sortOrder;
+    } else {
+      sortOptions.createdAt = -1;
     }
+
+    const [data, total] = await Promise.all([
+      this.productModel
+        .find(filter)
+        .populate('category', 'name')
+        .populate('subcategory', 'name')
+        .populate('brand', 'brandName brandLogo')
+        .populate('variants.color', 'name hexValue')
+        .populate('variants.size', 'name')
+        .sort(sortOptions)
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.productModel.countDocuments(filter),
+    ]);
+
+    return {
+      success: true,
+      statusCode: 200,
+      message: 'Products fetched successfully',
+      data,
+      meta: {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async findOne(id: string): Promise<Product> {
@@ -434,6 +321,7 @@ export class ProductService {
       }
       updateProductDto.thumbnail = await this.fileUploadService.handleUpload(
         files.image[0],
+        UPLOAD_FOLDERS.PRODUCTS,
       );
     }
 
@@ -556,6 +444,7 @@ export class ProductService {
         }
         variant.frontImage = await this.fileUploadService.handleUpload(
           files.frontImage[0],
+          UPLOAD_FOLDERS.PRODUCTS,
         );
       }
 
@@ -565,6 +454,7 @@ export class ProductService {
         }
         variant.backImage = await this.fileUploadService.handleUpload(
           files.backImage[0],
+          UPLOAD_FOLDERS.PRODUCTS,
         );
       }
 
@@ -575,6 +465,7 @@ export class ProductService {
         }
         variant.leftImage = await this.fileUploadService.handleUpload(
           files.leftImage[0],
+          UPLOAD_FOLDERS.PRODUCTS,
         );
       }
 
@@ -585,6 +476,7 @@ export class ProductService {
         }
         variant.rightImage = await this.fileUploadService.handleUpload(
           files.rightImage[0],
+          UPLOAD_FOLDERS.PRODUCTS,
         );
       }
     }
@@ -1054,7 +946,6 @@ export class ProductService {
         reviewCount,
       });
     }
-
     return results;
   }
 }

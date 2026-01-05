@@ -14,6 +14,7 @@ import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
 import { Subcategory, SubcategoryDocument } from './schema/subcategory.schema';
 import { Category } from '../categories/schema/category.schema';
 import { slugify } from 'src/common/utils/slugify.util';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
 
 @Injectable()
 export class SubcategoryService {
@@ -71,7 +72,10 @@ export class SubcategoryService {
         // 3. Handle file upload
         let imageUrl: string | undefined;
         if (file) {
-          imageUrl = await this.fileUploadService.handleUpload(file);
+          imageUrl = await this.fileUploadService.handleUpload(
+            file,
+            UPLOAD_FOLDERS.SUBCATEGORIES,
+          );
         }
 
         // 4. Create subcategory
@@ -265,7 +269,10 @@ export class SubcategoryService {
       // Handle image update
       let imageUrl = existing.imageUrl;
       if (file) {
-        const newUrl = await this.fileUploadService.handleUpload(file);
+        const newUrl = await this.fileUploadService.handleUpload(
+          file,
+          UPLOAD_FOLDERS.SUBCATEGORIES,
+        );
         if (existing.imageUrl) {
           try {
             await this.fileUploadService.deleteFile(existing.imageUrl);

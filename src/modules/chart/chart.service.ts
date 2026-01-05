@@ -7,6 +7,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Chart, ChartDocument } from './schema/chart.schema';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
 
 @Injectable()
 export class ChartsService {
@@ -23,7 +24,10 @@ export class ChartsService {
       }
 
       // Upload chart image
-      const chartImageUrl = await this.fileUploadService.handleUpload(file);
+      const chartImageUrl = await this.fileUploadService.handleUpload(
+        file,
+        UPLOAD_FOLDERS.CHARTS,
+      );
 
       const chartData = {
         chartImage: chartImageUrl,
@@ -37,7 +41,10 @@ export class ChartsService {
       // Clean up uploaded file if creation fails
       if (file) {
         try {
-          const chartImageUrl = await this.fileUploadService.handleUpload(file);
+          const chartImageUrl = await this.fileUploadService.handleUpload(
+            file,
+            UPLOAD_FOLDERS.CHARTS,
+          );
           await this.fileUploadService.deleteFile(chartImageUrl);
         } catch (cleanupError) {
           console.error('Failed to cleanup file:', cleanupError);
@@ -106,7 +113,10 @@ export class ChartsService {
     try {
       if (file) {
         oldChartImageUrl = chart.chartImage;
-        newChartImageUrl = await this.fileUploadService.handleUpload(file);
+        newChartImageUrl = await this.fileUploadService.handleUpload(
+          file,
+          UPLOAD_FOLDERS.CHARTS,
+        );
         chart.chartImage = newChartImageUrl;
         chart.updatedBy = new Types.ObjectId(userId);
       }

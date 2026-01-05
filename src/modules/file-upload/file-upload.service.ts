@@ -8,11 +8,13 @@ import * as fs from 'fs/promises';
 import * as fssync from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
+import * as sharp from 'sharp';
 import {
   S3Client,
   PutObjectCommand,
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
 
 @Injectable()
 export class FileUploadService {
@@ -55,46 +57,62 @@ export class FileUploadService {
    * For local: saves to disk (if memory storage used, we write buffer; if disk storage used, we return computed URL).
    * For S3: uploads buffer to S3 and returns a public URL or key-based URL.
    */
-  async handleUpload(file: Express.Multer.File): Promise<string> {
+  async handleUpload(
+    file: Express.Multer.File,
+    folder: string = UPLOAD_FOLDERS.OTHERS,
+  ): Promise<string> {
     if (!file) throw new BadRequestException('No file received');
+    if (!file.buffer) throw new BadRequestException('No file buffer received');
 
     try {
+      const isImage =
+        file.mimetype.startsWith('image/') && !file.mimetype.includes('svg');
+      let finalBuffer = file.buffer;
+      let finalExtension = this.safeExt(file.originalname);
+      let contentType = file.mimetype;
+
+      if (isImage) {
+        // Resize and compress image
+        finalBuffer = await sharp(file.buffer)
+          .resize(1280, 720, {
+            fit: 'inside', // Maintain aspect ratio, do not exceed dimensions
+            withoutEnlargement: true, // Do not upscale smaller images
+          })
+          .webp({ quality: 80 }) // Convert to WebP for better compression
+          .toBuffer();
+        finalExtension = '.webp';
+        contentType = 'image/webp';
+      }
+
       if (this.useS3) {
-        if (!file.buffer) {
-          // If you used diskStorage by mistake in S3 mode
-          throw new BadRequestException('File buffer missing in S3 mode');
-        }
-        const ext = this.safeExt(file.originalname);
-        const key = `uploads/${this.uniqueName(ext)}`;
+        // S3 mode: upload buffer to S3
+        const key = `${folder}/${this.uniqueName(finalExtension)}`;
         await this.s3!.send(
           new PutObjectCommand({
             Bucket: this.s3Bucket!,
             Key: key,
-            Body: file.buffer,
-            ContentType: file.mimetype,
+            Body: finalBuffer,
+            ContentType: contentType,
           }),
         );
         return this.publicUrlForKey(key);
       }
 
-      // Local mode
-      // If Multer used diskStorage, `file.path` is present and file is already written.
-      if (file.path) {
-        return this.publicUrlForLocal(path.basename(file.path));
+      // Local mode: write buffer to disk
+      const fileName = this.uniqueName(finalExtension);
+      const folderPath = path.join(this.localUploadPath, folder);
+
+      // Ensure folder exists
+      if (!fssync.existsSync(folderPath)) {
+        fssync.mkdirSync(folderPath, { recursive: true });
       }
 
-      // If Multer used memoryStorage for local (also supported)
-      if (file.buffer) {
-        const ext = this.safeExt(file.originalname);
-        const fileName = this.uniqueName(ext);
-        const filePath = path.join(this.localUploadPath, fileName);
-        await fs.writeFile(filePath, file.buffer);
-        return this.publicUrlForLocal(fileName);
-      }
-
-      throw new Error('No file data available');
+      const filePath = path.join(folderPath, fileName);
+      await fs.writeFile(filePath, finalBuffer);
+      return this.publicUrlForLocal(fileName, folder);
     } catch (err: any) {
-      // Avoid leaking internals
+      // Log the actual error for debugging
+      console.error('FileUploadService Error:', err);
       throw new InternalServerErrorException('Failed to save file');
     }
   }
@@ -130,8 +148,7 @@ export class FileUploadService {
     }
   }
 
-  // -------- helpers
-
+  // Helpers
   private uniqueName(ext: string) {
     const id = randomUUID();
     return `${id}${ext}`;
@@ -148,21 +165,24 @@ export class FileUploadService {
     return raw;
   }
 
-  private publicUrlForLocal(fileName: string) {
+  private publicUrlForLocal(
+    fileName: string,
+    folder: string = UPLOAD_FOLDERS.OTHERS,
+  ) {
     // If you run a CDN or proxy, set FILE_PUBLIC_BASE_URL (e.g., https://static.example.com)
     if (this.publicBaseUrl) {
-      return `${this.publicBaseUrl.replace(/\/+$/, '')}/uploads/${encodeURIComponent(fileName)}`;
+      return `${this.publicBaseUrl.replace(/\/+$/, '')}/uploads/${folder}/${encodeURIComponent(fileName)}`;
     }
     // Otherwise assume Nest serves /uploads from LOCAL_UPLOAD_PATH via ServeStatic
-    return `/uploads/${encodeURIComponent(fileName)}`;
+    return `/uploads/${folder}/${encodeURIComponent(fileName)}`;
   }
 
   private publicUrlForKey(key: string) {
     if (this.publicBaseUrl) {
-      return `${this.publicBaseUrl.replace(/\/+$/, '')}/${encodeURIComponent(key)}`;
+      return `${this.publicBaseUrl.replace(/\/+$/, '')}/${key}`;
     }
     // Default S3 URL; replace if you use a different S3 URL style or CloudFront
-    return `https://${this.s3Bucket}.s3.${this.config.get('AWS_REGION')}.amazonaws.com/${encodeURIComponent(key)}`;
+    return `https://${this.s3Bucket}.s3.${this.config.get('AWS_REGION')}.amazonaws.com/${key}`;
   }
 
   private extractS3Key(input: string) {
@@ -180,14 +200,12 @@ export class FileUploadService {
     let fileName: string;
 
     if (identifier.startsWith('/uploads/')) {
-      fileName = path.basename(identifier); // prevent traversal
+      // Remove the leading "/uploads/" and keep the rest (folder + filename)
+      fileName = identifier.substring('/uploads/'.length);
     } else {
-      // If the caller passed a full path, force it to be inside localUploadPath
-      if (path.isAbsolute(identifier)) {
-        fileName = path.basename(identifier);
-      } else {
-        fileName = path.basename(identifier);
-      }
+      // If it's a full path or just a filename, try to keep it relative to localUploadPath
+      // but ensure it's not trying to traverse up
+      fileName = identifier.replace(/^[\\\/]+/, '');
     }
 
     const joined = path.join(this.localUploadPath, fileName);

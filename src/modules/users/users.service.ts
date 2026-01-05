@@ -15,7 +15,8 @@ import { NotificationService } from 'src/modules/notifications/notifications.ser
 import { NotificationType } from 'src/common/enum/notification_type.enum';
 import { Role } from 'src/common/enum/user_role.enum';
 import { UpdateUserDto } from 'src/modules/users/dto/update-user.dto';
-import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
+import { FileUploadService } from '../file-upload/file-upload.service';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
 import {
   Address,
   AddressDocument,
@@ -184,7 +185,10 @@ export class UsersService {
         }
 
         // Upload new image
-        const imageUrl = await this.fileUploadService.handleUpload(file);
+        const imageUrl = await this.fileUploadService.handleUpload(
+          file,
+          UPLOAD_FOLDERS.USERS,
+        );
         user.imageUrl = imageUrl;
       }
 

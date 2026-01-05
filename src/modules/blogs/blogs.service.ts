@@ -10,6 +10,7 @@ import { CreateBlogDto } from './dto/create-blog.dto';
 import { UpdateBlogDto } from './dto/update-blog.dto';
 import { QueryBlogDto } from './dto/query-blog.dto';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
 
 export interface UserPayload {
   userId: string;
@@ -39,7 +40,10 @@ export class BlogsService {
 
     let imageUrl: string | undefined;
     if (file) {
-      imageUrl = await this.fileUploadService.handleUpload(file);
+      imageUrl = await this.fileUploadService.handleUpload(
+        file,
+        UPLOAD_FOLDERS.BLOGS,
+      );
     }
 
     const createdBlog = await this.blogModel.create({
@@ -128,7 +132,11 @@ export class BlogsService {
 
     // Handle file upload only if file is provided
     if (file) {
-      const imageUrl = await this.fileUploadService.handleUpload(file);
+      const imageUrl = await this.fileUploadService.handleUpload(
+        file,
+        UPLOAD_FOLDERS.BLOGS,
+      );
+
       existing.set({ ...dto, imageUrl });
     } else {
       // update only other fields, leave imageUrl unchanged

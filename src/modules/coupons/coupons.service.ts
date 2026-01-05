@@ -9,8 +9,9 @@ import { Model, Types } from 'mongoose';
 import { Coupon, CouponDocument, DiscountType } from './schema/coupon.schema';
 import { CreateCouponDto } from './dto/create-coupon.dto';
 import { UpdateCouponDto } from './dto/update-coupon.dto';
-import { Order } from '../order/schema/order.schema';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
+import { Order } from 'src/modules/order/schema/order.schema';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
 
 @Injectable()
 export class CouponsService {
@@ -33,7 +34,10 @@ export class CouponsService {
 
     let thumbnail: string;
     if (file) {
-      thumbnail = await this.fileUploadService.handleUpload(file);
+      thumbnail = await this.fileUploadService.handleUpload(
+        file,
+        UPLOAD_FOLDERS.COUPONS,
+      );
     } else {
       throw new BadRequestException('Coupon thumbnail image is required');
     }
@@ -113,7 +117,9 @@ export class CouponsService {
   }
 
   async findByCode(code: string): Promise<CouponDocument> {
-    const coupon = await this.couponModel.findOne({ code: code.toUpperCase() });
+    const coupon = await this.couponModel.findOne({
+      code: code.toUpperCase(),
+    });
     if (!coupon) {
       throw new NotFoundException('Coupon not found');
     }
@@ -136,7 +142,10 @@ export class CouponsService {
     }
 
     if (file) {
-      coupon.image = await this.fileUploadService.handleUpload(file);
+      coupon.image = await this.fileUploadService.handleUpload(
+        file,
+        UPLOAD_FOLDERS.COUPONS,
+      );
     }
 
     return coupon;

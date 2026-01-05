@@ -1,4 +1,3 @@
-// src/modules/banners/banners.service.ts
 import {
   Injectable,
   NotFoundException,
@@ -10,6 +9,7 @@ import { Banner, BannerDocument } from './schema/banner.schema';
 import { CreateBannerDto } from './dto/create-banner.dto';
 import { UpdateBannerDto } from './dto/update-banner.dto';
 import { FileUploadService } from 'src/modules/file-upload/file-upload.service';
+import { UPLOAD_FOLDERS } from 'src/common/constants';
 
 @Injectable()
 export class BannersService {
@@ -28,7 +28,10 @@ export class BannersService {
 
       // Upload image if provided
       if (file) {
-        imageUrl = await this.fileUploadService.handleUpload(file);
+        imageUrl = await this.fileUploadService.handleUpload(
+          file,
+          UPLOAD_FOLDERS.BANNERS,
+        );
       }
 
       const bannerData = {
@@ -91,7 +94,11 @@ export class BannersService {
       if (existingBanner.image) {
         await this.fileUploadService.deleteFile(existingBanner.image);
       }
-      const imageUrl = await this.fileUploadService.handleUpload(file);
+      const imageUrl = await this.fileUploadService.handleUpload(
+        file,
+        UPLOAD_FOLDERS.BANNERS,
+      );
+
       updateBannerDto.image = imageUrl;
     }
 
